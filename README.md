@@ -28,17 +28,29 @@ live-streaming/
 │   ├── QUICKSTART.md         # 快速开始
 │   └── README.md
 │
-└── live-streaming/           # 阶段 4: 实时直播系统 ⭐ 当前
-    ├── server.js             # RTMP + WebSocket + HTTP 服务器
+├── live-streaming/           # 阶段 4: RTMP 实时直播
+│   ├── server.js             # RTMP + WebSocket + HTTP 服务器
+│   ├── package.json
+│   ├── public/
+│   │   ├── index.html        # 直播播放器
+│   │   ├── app.js            # 播放器逻辑 + 弹幕
+│   │   └── broadcast.html    # 推流指南
+│   ├── recordings/           # 录制文件 (自动创建)
+│   ├── media/                # HLS 文件 (自动创建)
+│   ├── QUICKSTART.md         # 快速开始
+│   └── README.md
+│
+└── webrtc-streaming/         # 阶段 5: WebRTC 网页推流 ⭐ 当前
+    ├── server.js             # Mediasoup + RTMP + WebSocket 服务器
     ├── package.json
     ├── public/
-    │   ├── index.html        # 直播播放器
-    │   ├── app.js            # 播放器逻辑 + 弹幕
-    │   └── broadcast.html    # 推流指南
-    ├── recordings/           # 录制文件 (自动创建)
+    │   ├── stream.html       # 网页推流界面 (类似 YouTube Studio)
+    │   ├── streaming-client.js # WebRTC 推流逻辑
+    │   └── index.html        # 统一播放器
+    ├── certs/                # HTTPS 证书目录
     ├── media/                # HLS 文件 (自动创建)
     ├── QUICKSTART.md         # 快速开始 👈 从这里开始
-    └── README.md
+    └── README.md             # 完整技术文档
 ```
 
 ---
@@ -134,18 +146,19 @@ npm start
 
 ## 技术对比
 
-| 特性 | 阶段 2 (Range) | 阶段 3 (HLS) | 阶段 4 (Live) |
-|------|---------------|-------------|--------------|
-| **文件结构** | 单个 MP4/MOV | .ts 分片 + .m3u8 | RTMP → HLS |
-| **画质选择** | ❌ 固定 | ✅ 多码率 | ✅ 多码率 |
-| **自适应** | ❌ | ✅ 自动切换 | ✅ 自动切换 |
-| **实时直播** | ❌ | ⚠️ 点播为主 | ✅ 专为直播 |
-| **弹幕系统** | ❌ | ❌ | ✅ WebSocket |
-| **推流支持** | ❌ | ❌ | ✅ RTMP |
-| **自动录制** | ❌ | ❌ | ✅ 支持 |
-| **延迟** | 无延迟 | 低延迟 | 2-5秒 |
-| **复杂度** | 简单 | 中等 | 较高 |
-| **适用场景** | 点播 | 点播/直播 | 直播/互动 |
+| 特性 | 阶段 2 (Range) | 阶段 3 (HLS) | 阶段 4 (RTMP) | 阶段 5 (WebRTC) |
+|------|---------------|-------------|--------------|----------------|
+| **文件结构** | 单个 MP4/MOV | .ts 分片 + .m3u8 | RTMP → HLS | WebRTC/RTMP → HLS |
+| **画质选择** | ❌ 固定 | ✅ 多码率 | ✅ 多码率 | ✅ 多码率 |
+| **自适应** | ❌ | ✅ 自动切换 | ✅ 自动切换 | ✅ 自动切换 |
+| **实时直播** | ❌ | ⚠️ 点播为主 | ✅ 专为直播 | ✅ 专为直播 |
+| **弹幕系统** | ❌ | ❌ | ✅ WebSocket | ✅ WebSocket |
+| **推流支持** | ❌ | ❌ | ✅ RTMP (OBS) | ✅ WebRTC + RTMP |
+| **网页推流** | ❌ | ❌ | ❌ | ✅ 浏览器直接推 |
+| **自动录制** | ❌ | ❌ | ✅ 支持 | ✅ 支持 |
+| **延迟** | 无延迟 | 低延迟 | 2-5秒 | 1-3秒 (WebRTC < 1秒) |
+| **复杂度** | 简单 | 中等 | 较高 | 高 |
+| **适用场景** | 点播 | 点播/直播 | 直播/互动 | 直播/互动/在线会议 |
 
 ---
 
@@ -212,7 +225,7 @@ node transcode.js ../video-streaming/videos/知否.mov
 node transcode.js ../video-streaming/videos/社火.mov
 ```
 
-### 阶段 4 - 实时直播系统
+### 阶段 4 - RTMP 实时直播
 
 ```bash
 cd live-streaming
@@ -229,6 +242,31 @@ npm start                    # 启动直播服务器
 - http://localhost:5000 - 直播播放器
 - http://localhost:5000/broadcast.html - 推流指南
 
+### 阶段 5 - WebRTC 网页推流
+
+```bash
+cd webrtc-streaming
+npm install
+npm start                    # 启动 WebRTC + RTMP 服务器
+```
+
+**方式 1: 网页推流** (无需 OBS):
+```
+访问: https://localhost:6443/stream.html
+或: http://localhost:6000/stream.html
+选择摄像头/屏幕共享 → 输入流密钥 → 开始推流
+```
+
+**方式 2: OBS 推流** (依然支持):
+```
+服务器: rtmp://localhost:1935/live
+串流密钥: stream_key
+```
+
+访问:
+- http://localhost:6000 - 统一播放器
+- https://localhost:6443/stream.html - 网页推流界面
+
 ---
 
 ## 学习资源
@@ -244,12 +282,18 @@ npm start                    # 启动直播服务器
 - [hls-streaming/HLS-EXPLAINED.md](./hls-streaming/HLS-EXPLAINED.md) - HLS 技术详解
 - [hls-streaming/SETUP.md](./hls-streaming/SETUP.md) - 安装指南
 
-**阶段 4 - 实时直播系统** ⭐:
+**阶段 4 - RTMP 实时直播**:
 - [live-streaming/QUICKSTART.md](./live-streaming/QUICKSTART.md) - 快速开始
 - [live-streaming/README.md](./live-streaming/README.md) - 详细说明
 - [live-streaming/RTMP-EXPLAINED.md](./live-streaming/RTMP-EXPLAINED.md) - RTMP 协议深度解析 📡
 - [live-streaming/RTMP-QUICKREF.md](./live-streaming/RTMP-QUICKREF.md) - RTMP 快速参考 📋
 - [live-streaming/MOBILE-STREAMING.md](./live-streaming/MOBILE-STREAMING.md) - 移动端推流/观看方案 📱
+
+**阶段 5 - WebRTC 网页推流** ⭐:
+- [webrtc-streaming/QUICKSTART.md](./webrtc-streaming/QUICKSTART.md) - 快速开始 👈 10分钟上手
+- [webrtc-streaming/README.md](./webrtc-streaming/README.md) - 完整技术文档 📖
+- [live-streaming/WEB-OBS-FEASIBILITY.md](./live-streaming/WEB-OBS-FEASIBILITY.md) - 网页版 OBS 可行性分析 💡
+- [live-streaming/YOUTUBE-TECH-STACK.md](./live-streaming/YOUTUBE-TECH-STACK.md) - YouTube 技术栈详解 🎬
 
 ### 在线资源
 
@@ -301,13 +345,67 @@ npm start
 - 弹幕系统实现
 - 直播录制
 
-### 🎯 阶段 5: 生产级优化 (计划中)
+### ✅ 阶段 5: WebRTC 网页推流
+
+**目录**: `webrtc-streaming/`
+
+**核心技术**:
+- WebRTC (浏览器实时通信)
+- Mediasoup 媒体服务器 (WebRTC SFU)
+- WebSocket 信令服务器
+- WebRTC ↔ RTMP 协议转换
+- 双推流模式 (WebRTC + RTMP)
+
+**快速开始**:
+
+```bash
+cd webrtc-streaming
+
+# 1. 安装依赖 (首次需要编译 Mediasoup)
+npm install
+
+# 2. 启动服务器
+npm start
+
+# 3. 网页推流
+访问: https://localhost:6443/stream.html
+或: http://localhost:6000/stream.html (仅 localhost)
+
+# 4. OBS 推流 (依然支持)
+服务器: rtmp://localhost:1935/live
+串流密钥: stream_key
+
+# 5. 访问播放器
+http://localhost:6000
+```
+
+**详细教程**: 查看 [webrtc-streaming/QUICKSTART.md](./webrtc-streaming/QUICKSTART.md)
+
+**学到的知识**:
+- WebRTC 推流原理
+- Mediasoup SFU 架构
+- WebRTC 信令流程
+- getUserMedia/getDisplayMedia API
+- 协议转换技术 (WebRTC → RTMP)
+- 双推流系统设计
+
+**功能特性**:
+- ✅ 浏览器直接推流 (无需 OBS)
+- ✅ 摄像头推流
+- ✅ 屏幕共享推流
+- ✅ 兼容 OBS RTMP 推流
+- ✅ 超低延迟 (< 1秒)
+- ✅ HTTPS 安全连接
+
+### 🎯 阶段 6: 生产级优化 (计划中)
 
 - 视频上传和自动转码
 - 转码队列 (Bull + Redis)
 - CDN 集成 (CloudFlare, AWS)
 - DRM 视频加密
 - 监控和日志系统
+- 多人连麦
+- 虚拟背景
 
 ---
 
@@ -322,6 +420,8 @@ npm start
 ✅ HLS 协议实现
 ✅ RTMP 推流服务器
 ✅ WebSocket 实时通信
+✅ Mediasoup 媒体服务器
+✅ WebRTC 信令服务器
 ✅ 多服务器架构
 
 ### 前端技术
@@ -334,6 +434,9 @@ npm start
 ✅ WebSocket 客户端
 ✅ 弹幕动画系统
 ✅ 实时聊天 UI
+✅ WebRTC API (getUserMedia/getDisplayMedia)
+✅ Mediasoup Client
+✅ 实时视频预览
 
 ### 视频技术
 
@@ -344,7 +447,10 @@ npm start
 ✅ MPEG-TS 视频分片
 ✅ 多码率自适应
 ✅ RTMP 协议
+✅ WebRTC 协议
+✅ Mediasoup SFU
 ✅ 实时转码
+✅ 协议转换 (WebRTC ↔ RTMP)
 ✅ 直播录制
 
 ---
@@ -364,10 +470,16 @@ npm start
 - 接近 YouTube 点播实现
 
 **阶段 4 (live-streaming)**:
-- 完整的直播系统
-- RTMP 推流 + HLS 播放
+- 完整的 RTMP 直播系统
+- OBS 推流 + HLS 播放
 - 实时弹幕和互动
 - 接近 Bilibili/Twitch 实现
+
+**阶段 5 (webrtc-streaming)**:
+- WebRTC + RTMP 双推流系统
+- 浏览器直接推流 (无需 OBS)
+- 超低延迟 (< 1秒)
+- 接近 YouTube Live 实现
 
 ### Q2: 需要安装什么？
 
@@ -376,6 +488,8 @@ npm start
 **阶段 3**: 需要 Node.js + FFmpeg
 
 **阶段 4**: 需要 Node.js + FFmpeg + OBS Studio
+
+**阶段 5**: 需要 Node.js + FFmpeg (可选 OBS)
 
 ```bash
 # macOS 安装 FFmpeg
@@ -421,7 +535,7 @@ ffmpeg -version
 
 ## 总结
 
-通过这四个阶段的学习，你已经：
+通过这五个阶段的学习，你已经：
 
 1. ✅ 理解了视频流媒体的基本原理
 2. ✅ 实现了 HTTP Range Requests
@@ -430,9 +544,12 @@ ffmpeg -version
 5. ✅ 实现了自适应比特率播放
 6. ✅ 掌握了 RTMP 推流技术
 7. ✅ 实现了 WebSocket 实时通信
-8. ✅ 构建了完整的直播系统
+8. ✅ 掌握了 WebRTC 实时通信
+9. ✅ 学会了 Mediasoup 媒体服务器
+10. ✅ 实现了协议转换 (WebRTC ↔ RTMP)
+11. ✅ 构建了双推流直播系统
 
-**这就是 YouTube、Netflix、Bilibili、Twitch 等平台的核心技术！**
+**这就是 YouTube、Netflix、Bilibili、Twitch、Zoom 等平台的核心技术！**
 
 ---
 
@@ -467,4 +584,5 @@ ffmpeg -version
 
 - **新手**: 从 [video-streaming/](./video-streaming/) 开始
 - **进阶**: 前往 [hls-streaming/QUICKSTART.md](./hls-streaming/QUICKSTART.md)
-- **直播**: 开启 [live-streaming/QUICKSTART.md](./live-streaming/QUICKSTART.md) 🚀
+- **RTMP 直播**: 开启 [live-streaming/QUICKSTART.md](./live-streaming/QUICKSTART.md)
+- **WebRTC 直播**: 体验 [webrtc-streaming/QUICKSTART.md](./webrtc-streaming/QUICKSTART.md) 🚀
