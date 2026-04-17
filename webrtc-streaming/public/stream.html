@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>网页推流 - WebRTC Live Streaming</title>
+  <script src="https://cdn.jsdelivr.net/npm/mediasoup-client@3/build/mediasoup-client.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      color: white;
+      margin-bottom: 30px;
+    }
+
+    header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+
+    header p {
+      font-size: 1.2em;
+      opacity: 0.9;
+    }
+
+    .main-content {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      margin-bottom: 20px;
+    }
+
+    .video-preview {
+      position: relative;
+      background: #000;
+      padding-top: 56.25%; /* 16:9 */
+    }
+
+    video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .preview-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      z-index: 10;
+    }
+
+    .status-badge {
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      font-size: 14px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      backdrop-filter: blur(10px);
+    }
+
+    .status-badge.live {
+      background: rgba(239, 68, 68, 0.9);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .timer {
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      font-size: 14px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      backdrop-filter: blur(10px);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .controls {
+      padding: 30px;
+    }
+
+    .control-group {
+      margin-bottom: 20px;
+    }
+
+    .control-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .control-group input,
+    .control-group select {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .button-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-success {
+      background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+      color: white;
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+      color: white;
+    }
+
+    .info-section {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .info-section h3 {
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+
+    .stat-item {
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+      border: 2px solid #e0e0e0;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #333;
+    }
+
+    .alert {
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .alert-info {
+      background: #dbeafe;
+      border-left: 4px solid #3b82f6;
+      color: #1e40af;
+    }
+
+    .alert-warning {
+      background: #fef3c7;
+      border-left: 4px solid #f59e0b;
+      color: #92400e;
+    }
+
+    .alert-success {
+      background: #d1fae5;
+      border-left: 4px solid #10b981;
+      color: #065f46;
+    }
+
+    .alert-error {
+      background: #fee2e2;
+      border-left: 4px solid #ef4444;
+      color: #991b1b;
+    }
+
+    .log-container {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 15px;
+      border-radius: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+
+    .log-entry {
+      margin-bottom: 5px;
+    }
+
+    .log-entry.error {
+      color: #f87171;
+    }
+
+    .log-entry.success {
+      color: #4ade80;
+    }
+
+    .log-entry.info {
+      color: #60a5fa;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎬 网页推流工具</h1>
+      <p>WebRTC 浏览器直播推流 (类似 YouTube Studio)</p>
+    </header>
+
+    <div class="main-content">
+      <div class="video-preview">
+        <video id="preview" autoplay muted playsinline></video>
+        <div class="preview-overlay">
+          <div class="status-badge" id="statusBadge">未开始</div>
+          <div class="timer" id="timer">00:00:00</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="alert alert-info" id="alertBox">
+          准备就绪。选择视频源并开始推流。
+        </div>
+
+        <div class="control-group">
+          <label for="streamKey">流密钥</label>
+          <input type="text" id="streamKey" value="webrtc_stream" placeholder="输入自定义流密钥">
+        </div>
+
+        <div class="control-group">
+          <label for="videoSource">视频源</label>
+          <select id="videoSource">
+            <option value="camera">摄像头</option>
+            <option value="screen">屏幕共享</option>
+          </select>
+        </div>
+
+        <div class="button-group">
+          <button class="btn-primary" id="startPreviewBtn">🎥 开启预览</button>
+          <button class="btn-success" id="startStreamBtn" disabled>📡 开始推流</button>
+        </div>
+
+        <div class="button-group">
+          <button class="btn-danger" id="stopStreamBtn" disabled>⏹️ 停止推流</button>
+          <button class="btn-primary" id="stopPreviewBtn" disabled>🔲 停止预览</button>
+        </div>
+
+        <div class="info-section">
+          <h3>📊 推流统计</h3>
+          <div class="stat-grid">
+            <div class="stat-item">
+              <div class="stat-label">状态</div>
+              <div class="stat-value" id="statStatus">空闲</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">视频码率</div>
+              <div class="stat-value" id="statVideoBitrate">0 kbps</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">音频码率</div>
+              <div class="stat-value" id="statAudioBitrate">0 kbps</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">推流时长</div>
+              <div class="stat-value" id="statDuration">00:00</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="info-section">
+          <h3>📝 日志</h3>
+          <div class="log-container" id="logContainer"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="streaming-client.js"></script>
+</body>
+</html>

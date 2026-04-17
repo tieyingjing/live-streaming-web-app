@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频流播放器 - 学习项目</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .info-box {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .info-box h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .info-box p {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .feature-item {
+            background: #f0f4ff;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .feature-item strong {
+            color: #667eea;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .video-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .video-list {
+            margin-bottom: 20px;
+        }
+
+        .video-item {
+            background: #f8f9fa;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .video-item:hover {
+            background: #e9ecef;
+            border-color: #667eea;
+            transform: translateX(5px);
+        }
+
+        .video-item.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .video-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .video-size {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .video-item.active .video-size {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .player-container {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        }
+
+        video {
+            width: 100%;
+            display: block;
+        }
+
+        .stats {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .stats h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .no-videos {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .empty-state {
+            background: #fff3cd;
+            border: 2px dashed #ffc107;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .empty-state h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .empty-state code {
+            background: #fff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #d63384;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 视频流播放器</h1>
+
+        <div class="info-box">
+            <h2>技术说明</h2>
+            <p>这是一个简单的视频点播服务器，演示了流媒体的核心技术：</p>
+            <div class="feature-list">
+                <div class="feature-item">
+                    <strong>HTTP Range Requests</strong>
+                    <p>支持断点续传和视频拖拽</p>
+                </div>
+                <div class="feature-item">
+                    <strong>206 Partial Content</strong>
+                    <p>分块加载视频数据</p>
+                </div>
+                <div class="feature-item">
+                    <strong>流式传输</strong>
+                    <p>边下载边播放，无需等待</p>
+                </div>
+                <div class="feature-item">
+                    <strong>HTML5 Video</strong>
+                    <p>原生视频播放控制</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="video-section">
+            <h2 style="color: #667eea; margin-bottom: 20px;">视频列表</h2>
+            <div id="videoList" class="video-list">
+                <p style="text-align: center; color: #999;">加载中...</p>
+            </div>
+
+            <div class="player-container">
+                <video id="videoPlayer" controls>
+                    您的浏览器不支持 video 标签。
+                </video>
+            </div>
+
+            <div class="stats">
+                <h3>播放统计</h3>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">当前时间</div>
+                        <div class="stat-value" id="currentTime">0:00</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">总时长</div>
+                        <div class="stat-value" id="duration">0:00</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">缓冲进度</div>
+                        <div class="stat-value" id="buffered">0%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">播放速度</div>
+                        <div class="stat-value" id="playbackRate">1.0x</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">视频分辨率</div>
+                        <div class="stat-value" id="resolution">-</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">网络状态</div>
+                        <div class="stat-value" id="networkState">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const videoPlayer = document.getElementById('videoPlayer');
+        const videoListEl = document.getElementById('videoList');
+
+        // 格式化时间
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // 格式化文件大小
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+            return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+        }
+
+        // 加载视频列表
+        async function loadVideoList() {
+            try {
+                const response = await fetch('/api/videos');
+                const videos = await response.json();
+
+                if (videos.length === 0) {
+                    videoListEl.innerHTML = `
+                        <div class="empty-state">
+                            <h3>还没有视频文件</h3>
+                            <p>请将 .mp4 视频文件放入服务器的 <code>videos/</code> 文件夹中</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                videoListEl.innerHTML = videos.map((video, index) => `
+                    <div class="video-item" data-url="${video.url}" data-index="${index}">
+                        <div class="video-name">${video.name}</div>
+                        <div class="video-size">大小: ${formatSize(video.size)}</div>
+                    </div>
+                `).join('');
+
+                // 添加点击事件
+                document.querySelectorAll('.video-item').forEach(item => {
+                    item.addEventListener('click', function() {
+                        document.querySelectorAll('.video-item').forEach(i => i.classList.remove('active'));
+                        this.classList.add('active');
+                        videoPlayer.src = this.dataset.url;
+                        videoPlayer.play();
+                    });
+                });
+
+                // 自动播放第一个视频
+                if (videos.length > 0) {
+                    document.querySelector('.video-item').click();
+                }
+            } catch (error) {
+                console.error('加载视频列表失败:', error);
+                videoListEl.innerHTML = '<p style="color: red; text-align: center;">加载失败</p>';
+            }
+        }
+
+        // 更新统计信息
+        function updateStats() {
+            document.getElementById('currentTime').textContent = formatTime(videoPlayer.currentTime);
+            document.getElementById('duration').textContent = formatTime(videoPlayer.duration || 0);
+            document.getElementById('playbackRate').textContent = videoPlayer.playbackRate + 'x';
+
+            // 缓冲进度
+            if (videoPlayer.buffered.length > 0) {
+                const bufferedEnd = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+                const bufferedPercent = (bufferedEnd / videoPlayer.duration * 100).toFixed(1);
+                document.getElementById('buffered').textContent = bufferedPercent + '%';
+            }
+
+            // 分辨率
+            if (videoPlayer.videoWidth && videoPlayer.videoHeight) {
+                document.getElementById('resolution').textContent =
+                    `${videoPlayer.videoWidth}x${videoPlayer.videoHeight}`;
+            }
+
+            // 网络状态
+            const networkStates = ['空闲', '加载中', '无资源', '错误'];
+            document.getElementById('networkState').textContent =
+                networkStates[videoPlayer.networkState] || '未知';
+        }
+
+        // 事件监听
+        videoPlayer.addEventListener('timeupdate', updateStats);
+        videoPlayer.addEventListener('loadedmetadata', updateStats);
+        videoPlayer.addEventListener('progress', updateStats);
+
+        // 监听 seeking 事件（拖拽进度条）
+        videoPlayer.addEventListener('seeking', () => {
+            console.log('用户拖拽进度条到:', formatTime(videoPlayer.currentTime));
+        });
+
+        // 初始化
+        loadVideoList();
+        setInterval(updateStats, 1000);
+    </script>
+</body>
+</html>

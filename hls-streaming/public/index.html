@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HLS 自适应流媒体播放器</title>
+    <!-- 引入 hls.js - 支持非 Safari 浏览器播放 HLS -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            color: rgba(255, 255, 255, 0.9);
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .info-box {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .info-box h2 {
+            color: #667eea;
+            margin-bottom: 12px;
+            font-size: 1.3em;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .feature {
+            background: #f0f4ff;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .feature strong {
+            color: #667eea;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .feature small {
+            color: #666;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 25px;
+        }
+
+        .sidebar {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            height: fit-content;
+        }
+
+        .sidebar h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .video-item {
+            background: #f8f9fa;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+
+        .video-item:hover {
+            background: #e9ecef;
+            border-color: #667eea;
+            transform: translateX(5px);
+        }
+
+        .video-item.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .video-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .video-meta {
+            font-size: 0.85em;
+            color: #666;
+        }
+
+        .video-item.active .video-meta {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .qualities {
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+        }
+
+        .quality-badge {
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+        }
+
+        .video-item.active .quality-badge {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .player-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .player-container {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        video {
+            width: 100%;
+            display: block;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 8px;
+        }
+
+        .control-group label {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        select {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .stat-value.highlight {
+            color: #667eea;
+        }
+
+        .log-section {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #667eea;
+            padding-left: 10px;
+        }
+
+        .log-entry.info { border-left-color: #2196f3; }
+        .log-entry.success { border-left-color: #4caf50; }
+        .log-entry.warning { border-left-color: #ff9800; }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #d63384;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 HLS 自适应流媒体播放器</h1>
+        <p class="subtitle">阶段 3：多码率自适应 + 视频分片 (类似 YouTube 技术)</p>
+
+        <div class="info-box">
+            <h2>核心技术</h2>
+            <div class="features">
+                <div class="feature">
+                    <strong>HLS 协议</strong>
+                    <small>HTTP Live Streaming - Apple 开发</small>
+                </div>
+                <div class="feature">
+                    <strong>自适应码率 (ABR)</strong>
+                    <small>根据网速自动切换画质</small>
+                </div>
+                <div class="feature">
+                    <strong>视频分片</strong>
+                    <small>分成小段 (.ts)，边下边播</small>
+                </div>
+                <div class="feature">
+                    <strong>多码率支持</strong>
+                    <small>360p / 720p / 1080p</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- 侧边栏：视频列表 -->
+            <div class="sidebar">
+                <h2>📹 视频列表</h2>
+                <div id="videoList">
+                    <p style="text-align: center; color: #999;">加载中...</p>
+                </div>
+            </div>
+
+            <!-- 主内容：播放器 -->
+            <div class="player-section">
+                <div class="player-container">
+                    <video id="videoPlayer" controls></video>
+                </div>
+
+                <!-- 手动控制 -->
+                <div class="controls">
+                    <div class="control-group">
+                        <label>手动选择画质:</label>
+                        <select id="qualitySelector">
+                            <option value="auto">自动 (推荐)</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>播放速度:</label>
+                        <select id="speedSelector">
+                            <option value="0.5">0.5x</option>
+                            <option value="1" selected>1.0x</option>
+                            <option value="1.5">1.5x</option>
+                            <option value="2">2.0x</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 统计信息 -->
+                <h3 style="color: #667eea; margin-bottom: 15px;">实时统计</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">当前画质</div>
+                        <div class="stat-value highlight" id="currentQuality">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">视频分辨率</div>
+                        <div class="stat-value" id="resolution">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">当前时间</div>
+                        <div class="stat-value" id="currentTime">0:00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">总时长</div>
+                        <div class="stat-value" id="duration">0:00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">缓冲进度</div>
+                        <div class="stat-value" id="buffered">0%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">下载速度</div>
+                        <div class="stat-value" id="downloadSpeed">-</div>
+                    </div>
+                </div>
+
+                <!-- 事件日志 -->
+                <h3 style="color: #667eea; margin: 20px 0 15px;">事件日志</h3>
+                <div class="log-section" id="logContainer">
+                    <div class="log-entry info">等待加载视频...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const videoPlayer = document.getElementById('videoPlayer');
+        const videoListEl = document.getElementById('videoList');
+        const qualitySelector = document.getElementById('qualitySelector');
+        const speedSelector = document.getElementById('speedSelector');
+        const logContainer = document.getElementById('logContainer');
+
+        let hls = null;
+        let currentVideoUrl = null;
+
+        // 日志函数
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            // 同时输出到浏览器 Console
+            const consoleMessage = `[${timestamp}] ${message}`;
+            if (type === 'success') {
+                console.log('%c' + consoleMessage, 'color: #4caf50; font-weight: bold');
+            } else if (type === 'warning') {
+                console.warn(consoleMessage);
+            } else if (type === 'error') {
+                console.error(consoleMessage);
+            } else {
+                console.log(consoleMessage);
+            }
+
+            // 限制日志数量
+            while (logContainer.children.length > 30) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        // 格式化时间
+        function formatTime(seconds) {
+            if (!seconds || isNaN(seconds)) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // 格式化文件大小
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+            return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+        }
+
+        // 加载 HLS 视频
+        function loadHLSVideo(url) {
+            currentVideoUrl = url;
+            log(`加载 HLS 视频: ${url}`, 'info');
+
+            // 优先使用 hls.js（用于学习和调试）
+            if (Hls.isSupported()) {
+                // 使用 hls.js
+                log('使用 hls.js 播放', 'success');
+
+                if (hls) {
+                    hls.destroy();
+                }
+
+                hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    lowLatencyMode: false,
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(videoPlayer);
+
+                console.log(hls.Events);
+
+                // HLS 事件监听
+                hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                    log(`✅ 清单解析完成 - 找到 ${data.levels.length} 个画质选项`, 'success');
+
+                    // 更新画质选择器
+                    updateQualitySelector(data.levels);
+                });
+
+                // 准备切换画质
+                hls.on(Hls.Events.LEVEL_SWITCHING, (event, data) => {
+                    const level = hls.levels[data.level];
+                    log(`🔄🔄🔄 准备切换画质 → ${level.height}p (${(level.bitrate / 1000000).toFixed(2)} Mbps) 🔄🔄🔄`, 'warning');
+                });
+
+                // 已切换画质
+                hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+                    const level = hls.levels[data.level];
+                    const quality = `${level.height}p`;
+                    log(`✅✅✅ 画质已切换 → ${quality} (${(level.bitrate / 1000000).toFixed(2)} Mbps) ✅✅✅`, 'success');
+                    document.getElementById('currentQuality').textContent = quality;
+                });
+
+                let lastFragLevel = -1;
+
+                hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+                    const stats = data.frag.stats;
+                    const duration = (stats.loading.end - stats.loading.start) / 1000;
+                    const downloadSpeed = (stats.total * 8) / duration / 1000000;
+
+                    document.getElementById('downloadSpeed').textContent = downloadSpeed.toFixed(2) + ' Mbps';
+
+                    // 获取当前实际播放的画质
+                    const currentLevel = hls.levels[hls.currentLevel];
+                    const loadedLevel = hls.levels[data.frag.level];
+
+                    // 检测画质变化
+                    if (lastFragLevel !== -1 && lastFragLevel !== data.frag.level) {
+                        const oldLevel = hls.levels[lastFragLevel];
+                        log(`🎯🎯🎯 画质切换检测: ${oldLevel.height}p → ${loadedLevel.height}p 🎯🎯🎯`, 'warning');
+                    }
+                    lastFragLevel = data.frag.level;
+
+                    // 简化日志，只显示分片序号和画质
+                    const fragmentSize = (stats.total / 1024 / 1024).toFixed(2);
+                    log(`⬇️ 分片 #${data.frag.sn} [${loadedLevel.height}p] ${fragmentSize}MB ${downloadSpeed.toFixed(1)}Mbps`, 'info');
+
+                    // 更新当前画质显示
+                    if (currentLevel) {
+                        document.getElementById('currentQuality').textContent = `${currentLevel.height}p`;
+                    }
+                });
+
+                // 带宽估算更新
+                hls.on(Hls.Events.FRAG_LOADING, (event, data) => {
+                    // 分片开始加载，记录使用的画质
+                    const level = hls.levels[data.frag.level];
+                    console.log(`开始加载分片 ${data.frag.sn} [${level.height}p]`);
+                });
+
+                // 错误处理
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        log(`❌ 致命错误: ${data.type} - ${data.details}`, 'error');
+                    } else {
+                        console.warn(`⚠️ 警告: ${data.details}`);
+                    }
+                });
+
+                // 监听 ABR 控制器的所有事件
+                console.log('🎯 hls.js 已初始化，开始监控画质切换...');
+                console.log('可用画质:', hls.levels.map((l, i) => `${i}: ${l.height}p`));
+
+            } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                // 降级到原生 HLS（只在 hls.js 不支持时）
+                log('使用原生 HLS 支持 (Safari) - 无详细事件日志', 'success');
+                videoPlayer.src = url;
+            } else {
+                log('❌ 浏览器不支持 HLS', 'error');
+                alert('您的浏览器不支持 HLS 播放');
+            }
+        }
+
+        // 更新画质选择器
+        function updateQualitySelector(levels) {
+            qualitySelector.innerHTML = '<option value="-1">自动 (推荐)</option>';
+
+            levels.forEach((level, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${level.height}p - ${(level.bitrate / 1000000).toFixed(2)} Mbps`;
+                qualitySelector.appendChild(option);
+            });
+        }
+
+        // 画质选择事件
+        qualitySelector.addEventListener('change', (e) => {
+            if (hls) {
+                const level = parseInt(e.target.value);
+                if (level === -1) {
+                    hls.currentLevel = -1; // 自动
+                    log('切换到自动画质', 'info');
+                } else {
+                    hls.currentLevel = level;
+                    log(`手动切换到 ${hls.levels[level].height}p`, 'info');
+                }
+            }
+        });
+
+        // 播放速度控制
+        speedSelector.addEventListener('change', (e) => {
+            videoPlayer.playbackRate = parseFloat(e.target.value);
+            log(`播放速度: ${e.target.value}x`, 'info');
+        });
+
+        // 加载视频列表
+        async function loadVideoList() {
+            try {
+                const response = await fetch('/api/videos');
+                const videos = await response.json();
+
+                if (videos.length === 0) {
+                    videoListEl.innerHTML = `
+                        <div class="empty-state">
+                            <h3>还没有 HLS 视频</h3>
+                            <p style="line-height: 1.6; margin-top: 10px;">
+                                1. 将视频放入 <code>source-videos/</code><br>
+                                2. 运行 <code>npm run transcode</code><br>
+                                3. 刷新此页面
+                            </p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                videoListEl.innerHTML = videos.map(video => `
+                    <div class="video-item" data-url="${video.url}">
+                        <div class="video-name">${video.name}</div>
+                        <div class="video-meta">大小: ${formatSize(video.size)}</div>
+                        <div class="qualities">
+                            ${video.qualities.map(q => `<span class="quality-badge">${q}</span>`).join('')}
+                        </div>
+                    </div>
+                `).join('');
+
+                // 添加点击事件
+                document.querySelectorAll('.video-item').forEach(item => {
+                    item.addEventListener('click', function() {
+                        document.querySelectorAll('.video-item').forEach(i => i.classList.remove('active'));
+                        this.classList.add('active');
+                        loadHLSVideo(this.dataset.url);
+                    });
+                });
+
+                // 自动播放第一个
+                if (videos.length > 0) {
+                    document.querySelector('.video-item').click();
+                }
+
+            } catch (error) {
+                console.error('加载视频列表失败:', error);
+                videoListEl.innerHTML = '<p style="color: red; text-align: center;">加载失败</p>';
+            }
+        }
+
+        // 跟踪上一次的画质
+        let lastKnownLevel = -1;
+
+        // 更新统计信息
+        function updateStats() {
+            document.getElementById('currentTime').textContent = formatTime(videoPlayer.currentTime);
+            document.getElementById('duration').textContent = formatTime(videoPlayer.duration);
+
+            if (videoPlayer.buffered.length > 0) {
+                const bufferedEnd = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+                const bufferedPercent = (bufferedEnd / videoPlayer.duration * 100).toFixed(1);
+                document.getElementById('buffered').textContent = bufferedPercent + '%';
+            }
+
+            if (videoPlayer.videoWidth && videoPlayer.videoHeight) {
+                document.getElementById('resolution').textContent =
+                    `${videoPlayer.videoWidth}x${videoPlayer.videoHeight}`;
+            }
+
+            // 监控画质变化（如果使用 hls.js）
+            if (hls && hls.currentLevel !== undefined && hls.currentLevel >= 0) {
+                if (lastKnownLevel !== hls.currentLevel) {
+                    const level = hls.levels[hls.currentLevel];
+                    if (level) {
+                        if (lastKnownLevel !== -1) {
+                            // 画质发生了变化
+                            log(`🔄 画质已切换: ${level.height}p (${(level.bitrate / 1000000).toFixed(2)} Mbps)`, 'warning');
+                        }
+                        lastKnownLevel = hls.currentLevel;
+                        document.getElementById('currentQuality').textContent = `${level.height}p`;
+                    }
+                }
+
+                // 显示估算带宽
+                if (hls.bandwidthEstimate) {
+                    const bw = (hls.bandwidthEstimate / 1000000).toFixed(2);
+                    console.log(`估算带宽: ${bw} Mbps, 当前画质: ${hls.levels[hls.currentLevel].height}p`);
+                }
+            }
+        }
+
+        // 视频事件监听
+        videoPlayer.addEventListener('loadedmetadata', () => {
+            log(`📋 视频元数据加载完成 - 时长: ${formatTime(videoPlayer.duration)}`, 'success');
+            updateStats();
+        });
+
+        videoPlayer.addEventListener('play', () => log('▶️ 开始播放', 'info'));
+        videoPlayer.addEventListener('pause', () => log('⏸️ 暂停播放', 'info'));
+        videoPlayer.addEventListener('seeking', () => log(`🎯 跳转到 ${formatTime(videoPlayer.currentTime)}`, 'warning'));
+        videoPlayer.addEventListener('timeupdate', updateStats);
+        videoPlayer.addEventListener('progress', updateStats);
+
+        // 初始化
+        log('🚀 HLS 播放器初始化完成', 'success');
+        loadVideoList();
+        setInterval(updateStats, 1000);
+    </script>
+</body>
+</html>

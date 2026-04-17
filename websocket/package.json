@@ -1,0 +1,23 @@
+{
+  "name": "websocket-chat-tutorial",
+  "version": "1.0.0",
+  "description": "WebSocket 深度学习项目 - 实时聊天室",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:wss": "node server-wss.js",
+    "start:optimized": "node server-optimized.js",
+    "dev": "node server.js",
+    "cert": "./generate-cert.sh",
+    "stress": "node stress-test.js",
+    "stress:100": "node stress-test.js 100",
+    "stress:1000": "node stress-test.js 1000",
+    "stress:10000": "node stress-test.js 10000"
+  },
+  "keywords": ["websocket", "chat", "realtime", "tutorial"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

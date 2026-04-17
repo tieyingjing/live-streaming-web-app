@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HLS ABR 调试工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Monaco', 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #4ec9b0;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            background: #252526;
+            border: 1px solid #3e3e42;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .panel h2 {
+            color: #569cd6;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            border-bottom: 1px solid #3e3e42;
+            padding-bottom: 10px;
+        }
+
+        video {
+            width: 100%;
+            background: #000;
+            border-radius: 5px;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: #1e1e1e;
+            border-radius: 4px;
+        }
+
+        .metric-label {
+            color: #9cdcfe;
+        }
+
+        .metric-value {
+            color: #4ec9b0;
+            font-weight: bold;
+        }
+
+        .metric-value.warning {
+            color: #ce9178;
+        }
+
+        .metric-value.danger {
+            color: #f48771;
+        }
+
+        .log-container {
+            background: #1e1e1e;
+            border-radius: 5px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 0.9em;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #569cd6;
+            padding-left: 10px;
+        }
+
+        .log-entry.info { border-left-color: #569cd6; color: #9cdcfe; }
+        .log-entry.success { border-left-color: #4ec9b0; color: #4ec9b0; }
+        .log-entry.warning { border-left-color: #ce9178; color: #ce9178; }
+        .log-entry.danger { border-left-color: #f48771; color: #f48771; }
+
+        .timestamp {
+            color: #6a9955;
+            font-size: 0.85em;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        select, button {
+            padding: 10px 15px;
+            background: #3c3c3c;
+            color: #d4d4d4;
+            border: 1px solid #3e3e42;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        select:hover, button:hover {
+            background: #4e4e4e;
+        }
+
+        .level-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .level-0 { background: #ce9178; color: #1e1e1e; }
+        .level-1 { background: #4ec9b0; color: #1e1e1e; }
+        .level-2 { background: #569cd6; color: #1e1e1e; }
+
+        canvas {
+            background: #1e1e1e;
+            border-radius: 5px;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 HLS 自适应码率 (ABR) 调试工具</h1>
+
+        <div class="controls">
+            <select id="videoSelector">
+                <option value="">选择视频...</option>
+            </select>
+            <select id="throttling">
+                <option value="none">无限制</option>
+                <option value="4g">4G (4 Mbps)</option>
+                <option value="3g">3G (1.6 Mbps)</option>
+                <option value="slow3g">慢速 3G (400 Kbps)</option>
+            </select>
+            <button onclick="clearLogs()">清空日志</button>
+        </div>
+
+        <div class="grid">
+            <!-- 视频播放器 -->
+            <div class="panel">
+                <h2>🎬 视频播放器</h2>
+                <video id="video" controls></video>
+            </div>
+
+            <!-- 实时指标 -->
+            <div class="panel">
+                <h2>📈 实时指标</h2>
+                <div class="metric">
+                    <span class="metric-label">当前画质</span>
+                    <span class="metric-value" id="currentQuality">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">估算带宽</span>
+                    <span class="metric-value" id="estimatedBandwidth">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">实际下载速度</span>
+                    <span class="metric-value" id="downloadSpeed">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">缓冲区大小</span>
+                    <span class="metric-value" id="bufferSize">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">已下载分片</span>
+                    <span class="metric-value" id="fragmentCount">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">总下载量</span>
+                    <span class="metric-value" id="totalDownload">0 MB</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">丢帧数</span>
+                    <span class="metric-value" id="droppedFrames">0</span>
+                </div>
+            </div>
+
+            <!-- 可用码率 -->
+            <div class="panel">
+                <h2>🎯 可用码率</h2>
+                <div id="levels"></div>
+            </div>
+
+            <!-- 带宽历史 -->
+            <div class="panel">
+                <h2>📊 带宽历史图表</h2>
+                <canvas id="bandwidthChart"></canvas>
+            </div>
+
+            <!-- 事件日志 -->
+            <div class="panel full-width">
+                <h2>📝 事件日志</h2>
+                <div class="log-container" id="logContainer">
+                    <div class="log-entry info">等待加载视频...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const logContainer = document.getElementById('logContainer');
+        const videoSelector = document.getElementById('videoSelector');
+
+        let hls = null;
+        let fragmentCount = 0;
+        let totalBytes = 0;
+        let bandwidthHistory = [];
+        let levelHistory = [];
+        let chart = null;
+
+        // 日志函数
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            while (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        function clearLogs() {
+            logContainer.innerHTML = '<div class="log-entry info">日志已清空</div>';
+        }
+
+        // 格式化字节
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+        }
+
+        // 格式化速度
+        function formatBitrate(bps) {
+            if (bps < 1000) return bps + ' bps';
+            if (bps < 1000000) return (bps / 1000).toFixed(2) + ' Kbps';
+            return (bps / 1000000).toFixed(2) + ' Mbps';
+        }
+
+        // 初始化图表
+        function initChart() {
+            const ctx = document.getElementById('bandwidthChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '估算带宽',
+                            data: [],
+                            borderColor: '#569cd6',
+                            backgroundColor: 'rgba(86, 156, 214, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: '实际速度',
+                            data: [],
+                            borderColor: '#4ec9b0',
+                            backgroundColor: 'rgba(78, 201, 176, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: '360p 需求',
+                            data: [],
+                            borderColor: '#ce9178',
+                            borderDash: [5, 5],
+                            fill: false
+                        },
+                        {
+                            label: '720p 需求',
+                            data: [],
+                            borderColor: '#4ec9b0',
+                            borderDash: [5, 5],
+                            fill: false
+                        },
+                        {
+                            label: '1080p 需求',
+                            data: [],
+                            borderColor: '#569cd6',
+                            borderDash: [5, 5],
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 2,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Mbps', color: '#d4d4d4' },
+                            ticks: { color: '#d4d4d4' },
+                            grid: { color: '#3e3e42' }
+                        },
+                        x: {
+                            title: { display: true, text: '时间', color: '#d4d4d4' },
+                            ticks: { color: '#d4d4d4' },
+                            grid: { color: '#3e3e42' }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#d4d4d4' } }
+                    }
+                }
+            });
+        }
+
+        // 更新图表
+        function updateChart(estimatedBw, actualBw) {
+            const time = new Date().toLocaleTimeString();
+
+            chart.data.labels.push(time);
+            chart.data.datasets[0].data.push((estimatedBw / 1000000).toFixed(2));
+            chart.data.datasets[1].data.push((actualBw / 1000000).toFixed(2));
+            chart.data.datasets[2].data.push(0.8);   // 360p
+            chart.data.datasets[3].data.push(2.5);   // 720p
+            chart.data.datasets[4].data.push(5.0);   // 1080p
+
+            if (chart.data.labels.length > 20) {
+                chart.data.labels.shift();
+                chart.data.datasets.forEach(dataset => dataset.data.shift());
+            }
+
+            chart.update('none');
+        }
+
+        // 加载视频列表
+        async function loadVideoList() {
+            try {
+                const response = await fetch('/api/videos');
+                const videos = await response.json();
+
+                videoSelector.innerHTML = '<option value="">选择视频...</option>';
+                videos.forEach(video => {
+                    const option = document.createElement('option');
+                    option.value = video.url;
+                    option.textContent = video.name;
+                    videoSelector.appendChild(option);
+                });
+
+                if (videos.length > 0) {
+                    log(`找到 ${videos.length} 个视频`, 'success');
+                }
+            } catch (error) {
+                log('加载视频列表失败: ' + error.message, 'danger');
+            }
+        }
+
+        // 视频选择
+        videoSelector.addEventListener('change', (e) => {
+            if (e.target.value) {
+                loadHLS(e.target.value);
+            }
+        });
+
+        // 加载 HLS
+        function loadHLS(url) {
+            if (hls) {
+                hls.destroy();
+            }
+
+            fragmentCount = 0;
+            totalBytes = 0;
+            bandwidthHistory = [];
+
+            log(`加载视频: ${url}`, 'info');
+
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(video);
+
+                // 清单解析完成
+                hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                    log(`✅ 清单解析完成 - ${data.levels.length} 个码率`, 'success');
+
+                    // 显示可用码率
+                    const levelsDiv = document.getElementById('levels');
+                    levelsDiv.innerHTML = data.levels.map((level, i) => `
+                        <div class="metric">
+                            <span class="level-badge level-${i}">${level.height}p</span>
+                            <span>${level.width}x${level.height} @ ${formatBitrate(level.bitrate)}</span>
+                        </div>
+                    `).join('');
+                });
+
+                // 码率切换中
+                hls.on(Hls.Events.LEVEL_SWITCHING, (event, data) => {
+                    const level = hls.levels[data.level];
+                    log(`🔄 准备切换到 ${level.height}p`, 'warning');
+                });
+
+                // 码率已切换
+                hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+                    const level = hls.levels[data.level];
+                    log(`✅ 已切换到 <span class="level-badge level-${data.level}">${level.height}p</span> (${formatBitrate(level.bitrate)})`, 'success');
+                    document.getElementById('currentQuality').textContent = `${level.height}p`;
+                    levelHistory.push({ time: Date.now(), level: data.level });
+                });
+
+                // 分片加载完成
+                hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+                    fragmentCount++;
+                    totalBytes += data.frag.stats.total;
+
+                    const stats = data.frag.stats;
+                    const duration = (stats.loading.end - stats.loading.start) / 1000;
+                    const downloadSpeed = (stats.total * 8) / duration;
+
+                    bandwidthHistory.push(downloadSpeed);
+
+                    log(`⬇️ 分片 ${data.frag.sn} 下载完成: ${formatBytes(stats.total)} 用时 ${duration.toFixed(2)}s, 速度 ${formatBitrate(downloadSpeed)}`, 'info');
+
+                    document.getElementById('fragmentCount').textContent = fragmentCount;
+                    document.getElementById('totalDownload').textContent = formatBytes(totalBytes);
+                    document.getElementById('downloadSpeed').textContent = formatBitrate(downloadSpeed);
+
+                    // 更新图表
+                    const estimated = hls.bandwidthEstimate || downloadSpeed;
+                    updateChart(estimated, downloadSpeed);
+                });
+
+                // 错误处理
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        log(`❌ 致命错误: ${data.type} - ${data.details}`, 'danger');
+                    } else {
+                        log(`⚠️ 警告: ${data.details}`, 'warning');
+                    }
+                });
+
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = url;
+                log('使用原生 HLS 支持', 'success');
+            } else {
+                log('浏览器不支持 HLS', 'danger');
+            }
+        }
+
+        // 更新统计
+        function updateStats() {
+            if (!hls) return;
+
+            // 估算带宽
+            if (hls.bandwidthEstimate) {
+                document.getElementById('estimatedBandwidth').textContent = formatBitrate(hls.bandwidthEstimate);
+            }
+
+            // 缓冲区
+            if (video.buffered.length > 0) {
+                const bufferEnd = video.buffered.end(video.buffered.length - 1);
+                const bufferSize = bufferEnd - video.currentTime;
+                document.getElementById('bufferSize').textContent = bufferSize.toFixed(1) + ' 秒';
+
+                const elem = document.getElementById('bufferSize');
+                if (bufferSize < 5) {
+                    elem.className = 'metric-value danger';
+                } else if (bufferSize < 10) {
+                    elem.className = 'metric-value warning';
+                } else {
+                    elem.className = 'metric-value';
+                }
+            }
+
+            // 丢帧
+            if (video.webkitDecodedFrameCount !== undefined) {
+                const dropped = video.webkitDroppedFrameCount || 0;
+                document.getElementById('droppedFrames').textContent = dropped;
+            }
+        }
+
+        // 初始化
+        initChart();
+        loadVideoList();
+        setInterval(updateStats, 1000);
+
+        log('🚀 ABR 调试工具已启动', 'success');
+        log('💡 选择视频开始测试', 'info');
+        log('💡 使用 Chrome DevTools Network 限速测试自适应切换', 'info');
+    </script>
+</body>
+</html>

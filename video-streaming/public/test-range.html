@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Range Requests 演示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        video {
+            width: 100%;
+            border-radius: 10px;
+            background: #000;
+        }
+
+        .info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-size: 0.9em;
+            color: #555;
+        }
+
+        .log-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+        }
+
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px;
+            border-left: 3px solid #667eea;
+            padding-left: 10px;
+        }
+
+        .log-entry.request {
+            border-left-color: #4caf50;
+        }
+
+        .log-entry.seek {
+            border-left-color: #ff9800;
+        }
+
+        .log-entry.buffer {
+            border-left-color: #2196f3;
+        }
+
+        .timestamp {
+            color: #888;
+            font-size: 0.9em;
+        }
+
+        .highlight {
+            background: #fffbcc;
+            padding: 2px 5px;
+            border-radius: 3px;
+            color: #333;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #d63384;
+            font-family: 'Courier New', monospace;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Range Requests 自动行为演示</h1>
+
+        <!-- 测试 1 -->
+        <div class="section">
+            <h2>测试 1: preload="metadata" (默认行为)</h2>
+            <video id="video1" src="/video/sample.mp4" preload="metadata" controls></video>
+            <div class="info">
+                <strong>预期行为:</strong> 页面加载时，浏览器自动发送一个小的 Range 请求（约 32KB），只获取视频元数据。
+                <br>打开 DevTools → Network 查看请求头: <code>Range: bytes=0-32767</code>
+            </div>
+        </div>
+
+        <!-- 测试 2 -->
+        <div class="section">
+            <h2>测试 2: preload="auto"</h2>
+            <video id="video2" src="/video/sample.mp4" preload="auto" controls></video>
+            <div class="info">
+                <strong>预期行为:</strong> 浏览器会预加载更多数据（1-3MB），准备流畅播放。
+                <br>你会看到多个连续的 Range 请求。
+            </div>
+        </div>
+
+        <!-- 测试 3 -->
+        <div class="section">
+            <h2>测试 3: preload="none"</h2>
+            <video id="video3" src="/video/sample.mp4" preload="none" controls></video>
+            <div class="info">
+                <strong>预期行为:</strong> 页面加载时不发送任何请求，直到你点击播放按钮。
+                <br>观察 Network 标签，只有点击播放后才会出现请求。
+            </div>
+        </div>
+
+        <!-- 实时日志 -->
+        <div class="section">
+            <h2>实时事件日志</h2>
+            <p>这些事件都是浏览器自动触发的，无需 JavaScript 干预：</p>
+            <div id="logContainer" class="log-container">
+                <div class="log-entry">等待视频事件...</div>
+            </div>
+            <button onclick="clearLog()">清空日志</button>
+        </div>
+
+        <!-- 手动控制测试 -->
+        <div class="section">
+            <h2>测试 4: 手动触发 Range 请求</h2>
+            <video id="video4" src="/video/sample.mp4" controls></video>
+
+            <div class="button-group">
+                <button onclick="seekTo(0)">跳到开头 (0%)</button>
+                <button onclick="seekTo(0.25)">跳到 25%</button>
+                <button onclick="seekTo(0.5)">跳到 50%</button>
+                <button onclick="seekTo(0.75)">跳到 75%</button>
+                <button onclick="seekTo(1)">跳到结尾 (100%)</button>
+            </div>
+
+            <div class="stats" id="stats">
+                <div class="stat-card">
+                    <div class="stat-label">当前位置</div>
+                    <div class="stat-value" id="currentPos">0:00</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">已缓冲</div>
+                    <div class="stat-value" id="bufferedAmount">0%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">总时长</div>
+                    <div class="stat-value" id="totalDuration">0:00</div>
+                </div>
+            </div>
+
+            <div class="info">
+                <strong>观察要点:</strong> 点击按钮跳转时，观察 DevTools Network 标签。
+                <br>每次跳转，浏览器会自动计算字节位置并发送新的 Range 请求！
+                <br>例如跳到 50%，你会看到 <code>Range: bytes=5242880-...</code>
+            </div>
+        </div>
+
+        <!-- 说明 -->
+        <div class="section">
+            <h2>关键发现</h2>
+            <ul style="line-height: 1.8; color: #555;">
+                <li><strong style="color: #667eea;">浏览器完全自动处理 Range 请求</strong> - 不需要任何 JavaScript</li>
+                <li><strong style="color: #667eea;">拖动进度条会触发新的 Range 请求</strong> - 直接跳到目标位置</li>
+                <li><strong style="color: #667eea;">服务器返回 206 状态码</strong> - 表示部分内容</li>
+                <li><strong style="color: #667eea;">Content-Range 头告诉浏览器</strong> - 这是哪一段数据</li>
+                <li><strong style="color: #667eea;">边下载边播放</strong> - 无需等待完整视频</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const logContainer = document.getElementById('logContainer');
+        let logCount = 0;
+
+        function log(message, type = 'info') {
+            logCount++;
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            // 限制日志数量
+            if (logCount > 50) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        function clearLog() {
+            logContainer.innerHTML = '<div class="log-entry">日志已清空</div>';
+            logCount = 0;
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+        }
+
+        // 为所有视频添加事件监听
+        document.querySelectorAll('video').forEach((video, index) => {
+            const videoName = `Video ${index + 1}`;
+
+            video.addEventListener('loadstart', () => {
+                log(`${videoName}: 📡 <span class="highlight">loadstart</span> - 开始加载资源`, 'request');
+            });
+
+            video.addEventListener('loadedmetadata', () => {
+                log(`${videoName}: 📋 <span class="highlight">loadedmetadata</span> - 元数据加载完成 (时长: ${formatTime(video.duration)}, 分辨率: ${video.videoWidth}x${video.videoHeight})`, 'request');
+            });
+
+            video.addEventListener('loadeddata', () => {
+                log(`${videoName}: 🎬 <span class="highlight">loadeddata</span> - 首帧数据加载完成`, 'request');
+            });
+
+            video.addEventListener('canplay', () => {
+                log(`${videoName}: ▶️ <span class="highlight">canplay</span> - 可以开始播放了`, 'request');
+            });
+
+            video.addEventListener('progress', () => {
+                if (video.buffered.length > 0) {
+                    const buffered = video.buffered.end(0);
+                    const percent = (buffered / video.duration * 100).toFixed(1);
+                    const bytes = buffered * (video.duration > 0 ? 1048576 : 0); // 粗略估算
+                    log(`${videoName}: ⬇️ <span class="highlight">progress</span> - 缓冲进度: ${percent}%`, 'buffer');
+                }
+            });
+
+            video.addEventListener('seeking', () => {
+                const currentTime = video.currentTime;
+                const percent = (currentTime / video.duration * 100).toFixed(1);
+                log(`${videoName}: 🎯 <span class="highlight">seeking</span> - 用户拖拽到 ${formatTime(currentTime)} (${percent}%) → 浏览器自动发送新的 Range 请求！`, 'seek');
+            });
+
+            video.addEventListener('seeked', () => {
+                log(`${videoName}: ✅ <span class="highlight">seeked</span> - 跳转完成，可以继续播放`, 'seek');
+            });
+
+            video.addEventListener('play', () => {
+                log(`${videoName}: ▶️ <span class="highlight">play</span> - 开始播放`, 'info');
+            });
+
+            video.addEventListener('pause', () => {
+                log(`${videoName}: ⏸️ <span class="highlight">pause</span> - 暂停播放`, 'info');
+            });
+        });
+
+        // 手动控制
+        const video4 = document.getElementById('video4');
+
+        function seekTo(percent) {
+            if (video4.duration) {
+                video4.currentTime = video4.duration * percent;
+                log(`<strong>手动跳转到 ${(percent * 100).toFixed(0)}%</strong> → 观察 Network 标签的 Range 请求！`, 'seek');
+            } else {
+                alert('请先加载视频元数据（等待几秒或点击播放）');
+            }
+        }
+
+        // 更新统计信息
+        setInterval(() => {
+            if (video4.duration) {
+                document.getElementById('currentPos').textContent = formatTime(video4.currentTime);
+                document.getElementById('totalDuration').textContent = formatTime(video4.duration);
+
+                if (video4.buffered.length > 0) {
+                    const buffered = video4.buffered.end(0);
+                    const percent = (buffered / video4.duration * 100).toFixed(1);
+                    document.getElementById('bufferedAmount').textContent = percent + '%';
+                }
+            }
+        }, 500);
+
+        // 页面加载时的提示
+        log('✨ 页面加载完成 - 打开 DevTools (F12) → Network 标签观察 Range 请求', 'info');
+        log('💡 提示: 勾选 "Preserve log" 可以保留所有请求记录', 'info');
+    </script>
+</body>
+</html>

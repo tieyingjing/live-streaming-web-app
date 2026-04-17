@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>HLS.js 事件测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            font-family: monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+        }
+        video { width: 100%; max-width: 600px; }
+        .section {
+            background: #252526;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        h2 { color: #4ec9b0; }
+        select, button {
+            padding: 10px;
+            background: #3c3c3c;
+            color: #d4d4d4;
+            border: 1px solid #555;
+            margin: 5px;
+        }
+        .log {
+            background: #1e1e1e;
+            padding: 10px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .event {
+            padding: 5px;
+            margin: 2px 0;
+            border-left: 3px solid #569cd6;
+            padding-left: 10px;
+        }
+        .event.level { border-left-color: #ce9178; background: rgba(206, 145, 120, 0.1); }
+        .event.frag { border-left-color: #4ec9b0; }
+        .event.error { border-left-color: #f48771; }
+    </style>
+</head>
+<body>
+    <h1>🔍 HLS.js 事件监听测试</h1>
+
+    <div class="section">
+        <h2>选择视频</h2>
+        <select id="videoSelect">
+            <option value="">加载中...</option>
+        </select>
+        <button onclick="startMonitoring()">开始监控</button>
+        <button onclick="clearLog()">清空日志</button>
+    </div>
+
+    <div class="section">
+        <video id="video" controls></video>
+    </div>
+
+    <div class="section">
+        <h2>📊 当前状态</h2>
+        <div id="status" style="font-size: 14px;"></div>
+    </div>
+
+    <div class="section">
+        <h2>📝 事件日志（所有 hls.js 事件）</h2>
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const videoSelect = document.getElementById('videoSelect');
+        const logDiv = document.getElementById('log');
+        const statusDiv = document.getElementById('status');
+        let hls = null;
+
+        function log(message, className = '') {
+            const entry = document.createElement('div');
+            entry.className = 'event ' + className;
+            const time = new Date().toLocaleTimeString() + '.' + new Date().getMilliseconds();
+            entry.innerHTML = `<strong>[${time}]</strong> ${message}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+            console.log(`[${time}] ${message}`);
+
+            // 限制日志数量
+            while (logDiv.children.length > 200) {
+                logDiv.removeChild(logDiv.lastChild);
+            }
+        }
+
+        function clearLog() {
+            logDiv.innerHTML = '';
+            console.clear();
+        }
+
+        function updateStatus() {
+            if (!hls) return;
+
+            const status = [];
+            status.push(`<strong>浏览器支持:</strong> ${Hls.isSupported() ? '✅ hls.js' : '❌'}`);
+
+            if (hls.levels && hls.levels.length > 0) {
+                status.push(`<strong>可用画质:</strong> ${hls.levels.length} 个`);
+                status.push(`<strong>当前画质:</strong> ${hls.currentLevel >= 0 ? 'Level ' + hls.currentLevel : '自动'}`);
+
+                if (hls.currentLevel >= 0 && hls.levels[hls.currentLevel]) {
+                    const level = hls.levels[hls.currentLevel];
+                    status.push(`<strong>分辨率:</strong> ${level.width}x${level.height}`);
+                    status.push(`<strong>码率:</strong> ${(level.bitrate / 1000000).toFixed(2)} Mbps`);
+                }
+
+                status.push(`<strong>自动切换:</strong> ${hls.autoLevelEnabled ? '✅ 开启' : '❌ 关闭'}`);
+
+                if (hls.bandwidthEstimate) {
+                    status.push(`<strong>估算带宽:</strong> ${(hls.bandwidthEstimate / 1000000).toFixed(2)} Mbps`);
+                }
+
+                // 显示所有画质
+                status.push(`<br><strong>画质列表:</strong>`);
+                hls.levels.forEach((level, i) => {
+                    const marker = i === hls.currentLevel ? '👉 ' : '　 ';
+                    status.push(`${marker}Level ${i}: ${level.width}x${level.height} @ ${(level.bitrate / 1000000).toFixed(2)} Mbps`);
+                });
+            }
+
+            statusDiv.innerHTML = status.join('<br>');
+        }
+
+        async function loadVideos() {
+            try {
+                const res = await fetch('/api/videos');
+                const videos = await res.json();
+
+                videoSelect.innerHTML = '<option value="">选择视频...</option>';
+                videos.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v.url;
+                    opt.textContent = v.name;
+                    videoSelect.appendChild(opt);
+                });
+
+                log('✅ 视频列表加载完成');
+            } catch (err) {
+                log('❌ 加载视频列表失败: ' + err.message, 'error');
+            }
+        }
+
+        function startMonitoring() {
+            const url = videoSelect.value;
+            if (!url) {
+                alert('请先选择视频');
+                return;
+            }
+
+            if (hls) {
+                hls.destroy();
+            }
+
+            clearLog();
+            log('🎬 开始监控视频: ' + url);
+
+            if (!Hls.isSupported()) {
+                log('❌ 浏览器不支持 hls.js', 'error');
+                if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    log('ℹ️ 使用原生 HLS 支持（无法监听详细事件）');
+                    video.src = url;
+                }
+                return;
+            }
+
+            hls = new Hls({
+                debug: false,
+                enableWorker: true,
+            });
+
+            // 打印所有可用的事件
+            log('📋 hls.js 可用事件列表:', 'level');
+            const events = Object.keys(Hls.Events);
+            log(`共 ${events.length} 个事件: ${events.join(', ')}`);
+
+            // 监听所有事件
+            events.forEach(eventName => {
+                const eventKey = Hls.Events[eventName];
+                hls.on(eventKey, (event, data) => {
+                    let className = '';
+                    let message = `<strong>${eventName}</strong>`;
+
+                    // 特殊处理一些重要事件
+                    if (eventName === 'MANIFEST_PARSED') {
+                        message += ` - ${data.levels.length} 个画质`;
+                        className = 'level';
+                    } else if (eventName === 'LEVEL_SWITCHING') {
+                        const level = hls.levels[data.level];
+                        message += ` → Level ${data.level} (${level.height}p, ${(level.bitrate / 1000000).toFixed(2)} Mbps)`;
+                        className = 'level';
+                    } else if (eventName === 'LEVEL_SWITCHED') {
+                        const level = hls.levels[data.level];
+                        message += ` → Level ${data.level} (${level.height}p, ${(level.bitrate / 1000000).toFixed(2)} Mbps)`;
+                        className = 'level';
+                    } else if (eventName === 'LEVEL_LOADED') {
+                        message += ` → Level ${data.level}`;
+                        className = 'level';
+                    } else if (eventName === 'FRAG_LOADING') {
+                        const level = hls.levels[data.frag.level];
+                        message += ` → 分片 #${data.frag.sn} [Level ${data.frag.level} - ${level.height}p]`;
+                        className = 'frag';
+                    } else if (eventName === 'FRAG_LOADED') {
+                        const level = hls.levels[data.frag.level];
+                        const stats = data.frag.stats;
+                        const duration = (stats.loading.end - stats.loading.start) / 1000;
+                        const speed = (stats.total * 8) / duration / 1000000;
+                        message += ` → 分片 #${data.frag.sn} [Level ${data.frag.level} - ${level.height}p], ${(stats.total / 1024 / 1024).toFixed(2)} MB, ${speed.toFixed(2)} Mbps`;
+                        className = 'frag';
+                    } else if (eventName === 'ERROR') {
+                        message += ` → ${data.type}: ${data.details}`;
+                        className = 'error';
+                    } else if (data && typeof data === 'object') {
+                        // 其他事件，显示 data 的键
+                        const keys = Object.keys(data).slice(0, 5).join(', ');
+                        if (keys) message += ` (${keys})`;
+                    }
+
+                    log(message, className);
+                    updateStatus();
+                });
+            });
+
+            hls.loadSource(url);
+            hls.attachMedia(video);
+
+            log('✅ hls.js 初始化完成，开始监听所有事件');
+            log('💡 请播放视频并使用 Chrome DevTools Network Throttling 测试画质切换');
+        }
+
+        // 定时更新状态
+        setInterval(updateStatus, 2000);
+
+        // 初始化
+        loadVideos();
+    </script>
+</body>
+</html>

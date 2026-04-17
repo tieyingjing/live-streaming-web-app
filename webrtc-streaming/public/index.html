@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>阶段5: WebRTC + RTMP 直播播放器</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      color: white;
+      margin-bottom: 30px;
+    }
+
+    header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+
+    header p {
+      font-size: 1.2em;
+      opacity: 0.9;
+    }
+
+    .main-content {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      margin-bottom: 20px;
+    }
+
+    .video-container {
+      position: relative;
+      background: #000;
+      padding-top: 56.25%; /* 16:9 */
+    }
+
+    #video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .video-controls {
+      padding: 20px;
+    }
+
+    .control-group {
+      margin-bottom: 15px;
+    }
+
+    .control-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .control-group input,
+    .control-group select {
+      width: 100%;
+      padding: 10px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      margin-bottom: 10px;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    .info-section {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .info-section h3 {
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+
+    .stat-item {
+      padding: 15px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 8px;
+      color: white;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 5px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .alert {
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .alert-info {
+      background: #dbeafe;
+      border-left: 4px solid #3b82f6;
+      color: #1e40af;
+    }
+
+    code {
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      color: #dc2626;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎬 阶段5: WebRTC + RTMP 直播播放器</h1>
+      <p>支持两种推流方式：网页 WebRTC 推流 + OBS RTMP 推流</p>
+    </header>
+
+    <div class="alert alert-info">
+      <strong>💡 推流方式:</strong><br>
+      <strong>方式1:</strong> 网页推流 → 访问 <code>/stream.html</code><br>
+      <strong>方式2:</strong> OBS 推流 → <code>rtmp://localhost:1935/live/stream_key</code>
+    </div>
+
+    <div class="main-content">
+      <div class="video-container">
+        <video id="video" controls autoplay muted></video>
+      </div>
+
+      <div class="video-controls">
+        <div class="control-group">
+          <label for="streamKey">流密钥</label>
+          <input type="text" id="streamKey" value="stream_key" placeholder="输入流密钥">
+        </div>
+
+        <div class="control-group">
+          <button id="playBtn">▶️ 开始播放</button>
+        </div>
+
+        <div class="control-group">
+          <label>HLS 播放地址</label>
+          <input type="text" id="hlsUrl" readonly value="http://localhost:8000/live/stream_key/index.m3u8">
+        </div>
+      </div>
+    </div>
+
+    <div class="info-section">
+      <h3>📊 播放统计</h3>
+      <div class="stat-grid">
+        <div class="stat-item">
+          <div class="stat-label">当前画质</div>
+          <div class="stat-value" id="currentLevel">-</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">缓冲健康度</div>
+          <div class="stat-value" id="bufferHealth">0s</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">推流方式</div>
+          <div class="stat-value" id="streamType">未知</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">播放状态</div>
+          <div class="stat-value" id="playStatus">空闲</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-section">
+      <h3>📡 推流信息</h3>
+      <p><strong>网页推流:</strong> 访问 <a href="/stream.html" target="_blank">/stream.html</a></p>
+      <p><strong>OBS 推流:</strong></p>
+      <ul style="margin-left: 20px; margin-top: 10px;">
+        <li>服务器: <code>rtmp://localhost:1935/live</code></li>
+        <li>串流密钥: <code id="currentStreamKey">stream_key</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    let hls = null;
+    let isPlaying = false;
+
+    const video = document.getElementById('video');
+    const streamKeyInput = document.getElementById('streamKey');
+    const hlsUrlInput = document.getElementById('hlsUrl');
+    const playBtn = document.getElementById('playBtn');
+    const currentLevelEl = document.getElementById('currentLevel');
+    const bufferHealthEl = document.getElementById('bufferHealth');
+    const streamTypeEl = document.getElementById('streamType');
+    const playStatusEl = document.getElementById('playStatus');
+    const currentStreamKeyEl = document.getElementById('currentStreamKey');
+
+    // 更新 HLS URL
+    streamKeyInput.addEventListener('input', () => {
+      const key = streamKeyInput.value || 'stream_key';
+      hlsUrlInput.value = `http://localhost:8000/live/${key}/index.m3u8`;
+      currentStreamKeyEl.textContent = key;
+    });
+
+    // 播放按钮
+    playBtn.addEventListener('click', () => {
+      if (isPlaying) {
+        stopStream();
+      } else {
+        playStream();
+      }
+    });
+
+    // 播放直播流
+    function playStream() {
+      const streamUrl = hlsUrlInput.value;
+
+      if (Hls.isSupported()) {
+        if (hls) {
+          hls.destroy();
+        }
+
+        hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90
+        });
+
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          console.log('✅ HLS manifest 已加载');
+          video.play().catch(err => {
+            console.error('播放失败:', err);
+          });
+          isPlaying = true;
+          playBtn.textContent = '⏸️ 停止播放';
+          playStatusEl.textContent = '播放中';
+
+          // 检测推流方式
+          const streamKey = streamKeyInput.value;
+          if (streamKey.includes('webrtc')) {
+            streamTypeEl.textContent = 'WebRTC';
+          } else {
+            streamTypeEl.textContent = 'RTMP';
+          }
+        });
+
+        hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+          const level = hls.levels[data.level];
+          currentLevelEl.textContent = level ? `${level.height}p` : '-';
+        });
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          console.error('HLS 错误:', data);
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('网络错误，尝试重连...');
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('媒体错误，尝试恢复...');
+                hls.recoverMediaError();
+                break;
+              default:
+                console.log('致命错误，无法播放');
+                stopStream();
+                break;
+            }
+          }
+        });
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari 原生支持
+        video.src = streamUrl;
+        video.addEventListener('loadedmetadata', () => {
+          video.play();
+          isPlaying = true;
+          playBtn.textContent = '⏸️ 停止播放';
+          playStatusEl.textContent = '播放中';
+        });
+      } else {
+        alert('您的浏览器不支持 HLS 播放');
+      }
+    }
+
+    // 停止播放
+    function stopStream() {
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+      video.pause();
+      video.src = '';
+      isPlaying = false;
+      playBtn.textContent = '▶️ 开始播放';
+      currentLevelEl.textContent = '-';
+      playStatusEl.textContent = '空闲';
+      streamTypeEl.textContent = '未知';
+    }
+
+    // 更新缓冲健康度
+    setInterval(() => {
+      if (video.buffered.length > 0) {
+        const buffered = video.buffered.end(video.buffered.length - 1) - video.currentTime;
+        bufferHealthEl.textContent = buffered.toFixed(1) + 's';
+      }
+    }, 1000);
+  </script>
+</body>
+</html>

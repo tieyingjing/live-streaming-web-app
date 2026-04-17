@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket 实时聊天室 - 学习教程</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 900px;
+      height: 600px;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 头部 */
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ff4444;
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.connected {
+      background: #00ff88;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* 主体区域 */
+    .main-content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* 侧边栏 - 在线用户 */
+    .sidebar {
+      width: 200px;
+      background: #f7f7f7;
+      border-right: 1px solid #e0e0e0;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .sidebar h3 {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 15px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .user-list {
+      list-style: none;
+    }
+
+    .user-item {
+      padding: 8px 12px;
+      background: white;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .user-item::before {
+      content: '●';
+      color: #00ff88;
+      font-size: 12px;
+    }
+
+    .user-item.self {
+      background: #667eea;
+      color: white;
+    }
+
+    .user-item.self::before {
+      color: white;
+    }
+
+    /* 聊天区域 */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 消息容器 */
+    .messages {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+
+    .message {
+      margin-bottom: 15px;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message.system {
+      text-align: center;
+      color: #999;
+      font-size: 13px;
+      font-style: italic;
+    }
+
+    .message.chat .message-header {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .message.chat .username {
+      font-weight: 600;
+      color: #667eea;
+      font-size: 14px;
+    }
+
+    .message.chat .timestamp {
+      font-size: 11px;
+      color: #999;
+    }
+
+    .message.chat .message-text {
+      background: white;
+      padding: 10px 15px;
+      border-radius: 12px;
+      display: inline-block;
+      max-width: 70%;
+      word-wrap: break-word;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    }
+
+    .message.chat.self .message-text {
+      background: #667eea;
+      color: white;
+      float: right;
+    }
+
+    .message.chat.self .message-header {
+      justify-content: flex-end;
+    }
+
+    /* 正在输入指示器 */
+    .typing-indicator {
+      padding: 10px 20px;
+      font-size: 13px;
+      color: #999;
+      font-style: italic;
+      min-height: 35px;
+    }
+
+    /* 输入区域 */
+    .input-area {
+      padding: 20px;
+      background: white;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .input-container {
+      display: flex;
+      gap: 10px;
+    }
+
+    #messageInput {
+      flex: 1;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 25px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.3s;
+    }
+
+    #messageInput:focus {
+      border-color: #667eea;
+    }
+
+    #sendButton {
+      padding: 12px 30px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    #sendButton:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    #sendButton:active {
+      transform: translateY(0);
+    }
+
+    #sendButton:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* 登录界面 */
+    .login-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .login-box {
+      background: white;
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      min-width: 300px;
+    }
+
+    .login-box h2 {
+      margin-bottom: 10px;
+      color: #333;
+    }
+
+    .login-box p {
+      color: #666;
+      margin-bottom: 25px;
+      font-size: 14px;
+    }
+
+    .login-box input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 25px;
+      font-size: 14px;
+      margin-bottom: 15px;
+      outline: none;
+      transition: border-color 0.3s;
+    }
+
+    .login-box input:focus {
+      border-color: #667eea;
+    }
+
+    .login-box button {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .login-box button:hover {
+      transform: translateY(-2px);
+    }
+
+    /* 滚动条样式 */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #888;
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #555;
+    }
+  </style>
+</head>
+<body>
+  <!-- 登录界面 -->
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-box">
+      <h2>加入聊天室</h2>
+      <p>输入你的昵称开始聊天</p>
+      <input type="text" id="usernameInput" placeholder="输入昵称" maxlength="20" autofocus>
+      <button onclick="joinChat()">进入聊天室</button>
+    </div>
+  </div>
+
+  <!-- 主聊天界面 -->
+  <div class="container">
+    <div class="header">
+      <h1>WebSocket 实时聊天室</h1>
+      <div class="connection-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">断开连接</span>
+      </div>
+    </div>
+
+    <div class="main-content">
+      <!-- 侧边栏 - 在线用户 -->
+      <div class="sidebar">
+        <h3>在线用户 (<span id="userCount">0</span>)</h3>
+        <ul class="user-list" id="userList"></ul>
+      </div>
+
+      <!-- 聊天区域 -->
+      <div class="chat-area">
+        <div class="messages" id="messages"></div>
+        <div class="typing-indicator" id="typingIndicator"></div>
+        <div class="input-area">
+          <div class="input-container">
+            <input
+              type="text"
+              id="messageInput"
+              placeholder="输入消息..."
+              disabled
+              maxlength="500"
+            >
+            <button id="sendButton" onclick="sendMessage()" disabled>发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * WebSocket 客户端实现 - 学习要点
+     *
+     * 1. WebSocket 连接的建立和管理
+     * 2. 消息的发送和接收
+     * 3. 连接状态处理（打开、关闭、错误）
+     * 4. 断线重连机制
+     * 5. 心跳保活
+     */
+
+    // ==================== 全局变量 ====================
+
+    let ws = null;                    // WebSocket 连接对象
+    let username = '';                // 当前用户名
+    let userId = null;                // 服务器分配的用户 ID
+    let reconnectAttempts = 0;        // 重连尝试次数
+    let maxReconnectAttempts = 5;     // 最大重连次数
+    let reconnectInterval = 3000;     // 重连间隔（毫秒）
+    let heartbeatInterval = null;     // 心跳定时器
+    let typingTimeout = null;         // 输入状态超时
+    let isTyping = false;             // 当前是否正在输入
+
+    // DOM 元素
+    const loginOverlay = document.getElementById('loginOverlay');
+    const usernameInput = document.getElementById('usernameInput');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
+    const messages = document.getElementById('messages');
+    const userList = document.getElementById('userList');
+    const userCount = document.getElementById('userCount');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const typingIndicator = document.getElementById('typingIndicator');
+
+    // ==================== WebSocket 连接管理 ====================
+
+    /**
+     * 连接到 WebSocket 服务器
+     * WebSocket URL 格式: ws://host:port 或 wss://host:port (安全连接)
+     */
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}`;
+
+      console.log('🔌 正在连接 WebSocket 服务器:', wsUrl);
+
+      try {
+        // 创建 WebSocket 连接
+        ws = new WebSocket(wsUrl);
+
+        // ==================== WebSocket 事件处理 ====================
+
+        /**
+         * 连接打开事件
+         * 当 WebSocket 连接成功建立时触发
+         */
+        ws.onopen = () => {
+          console.log('✅ WebSocket 连接已建立');
+          reconnectAttempts = 0;
+          updateConnectionStatus(true);
+
+          // 如果已有用户名，自动加入聊天室
+          if (username) {
+            sendJoinMessage();
+            startHeartbeat();
+          }
+        };
+
+        /**
+         * 收到消息事件
+         * 这是 WebSocket 的核心：接收服务器推送的消息
+         */
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            console.log('📨 收到消息:', message);
+
+            // 根据消息类型处理
+            handleMessage(message);
+          } catch (error) {
+            console.error('❌ 解析消息出错:', error);
+          }
+        };
+
+        /**
+         * 连接关闭事件
+         * 当 WebSocket 连接关闭时触发
+         */
+        ws.onclose = (event) => {
+          console.log('🔌 WebSocket 连接已关闭', event);
+          updateConnectionStatus(false);
+          stopHeartbeat();
+
+          // 尝试重连
+          if (reconnectAttempts < maxReconnectAttempts) {
+            reconnectAttempts++;
+            console.log(`🔄 ${reconnectInterval / 1000} 秒后尝试重连 (${reconnectAttempts}/${maxReconnectAttempts})...`);
+            addSystemMessage(`连接断开，${reconnectInterval / 1000} 秒后自动重连...`);
+
+            setTimeout(() => {
+              connectWebSocket();
+            }, reconnectInterval);
+          } else {
+            addSystemMessage('连接失败，请刷新页面重试');
+          }
+        };
+
+        /**
+         * 错误事件
+         * 当 WebSocket 发生错误时触发
+         */
+        ws.onerror = (error) => {
+          console.error('❌ WebSocket 错误:', error);
+          addSystemMessage('连接出错，请检查网络');
+        };
+
+      } catch (error) {
+        console.error('❌ 创建 WebSocket 连接失败:', error);
+        addSystemMessage('无法连接到服务器');
+      }
+    }
+
+    // ==================== 消息处理 ====================
+
+    /**
+     * 处理收到的消息
+     */
+    function handleMessage(message) {
+      switch (message.type) {
+        case 'welcome':
+          // 欢迎消息
+          console.log('👋 服务器欢迎消息:', message.message);
+          break;
+
+        case 'join_success':
+          // 加入成功
+          userId = message.data.userId;
+          addSystemMessage(`欢迎 ${message.data.username}！`);
+          updateUserList(message.data.onlineUsers);
+          break;
+
+        case 'user_joined':
+          // 新用户加入
+          addSystemMessage(`${message.data.username} 加入了聊天室`);
+          updateUserList(message.data.onlineUsers);
+          break;
+
+        case 'user_left':
+          // 用户离开
+          addSystemMessage(`${message.data.username} 离开了聊天室`);
+          updateUserList(message.data.onlineUsers);
+          break;
+
+        case 'chat':
+          // 聊天消息
+          addChatMessage(
+            message.data.username,
+            message.data.message,
+            message.data.timestamp,
+            message.data.userId === userId
+          );
+          break;
+
+        case 'pong':
+          // 心跳响应
+          console.log('💓 收到心跳响应');
+          break;
+
+        case 'typing':
+          // 用户正在输入
+          showTypingIndicator(message.data.username, message.data.isTyping);
+          break;
+
+        case 'error':
+          // 错误消息
+          addSystemMessage(`错误: ${message.message}`);
+          break;
+
+        case 'server_shutdown':
+          // 服务器关闭
+          addSystemMessage('服务器即将关闭');
+          break;
+
+        default:
+          console.log('⚠️  未知消息类型:', message.type);
+      }
+    }
+
+    /**
+     * 发送消息到服务器
+     */
+    function sendToServer(message) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(message));
+      } else {
+        console.error('❌ WebSocket 未连接');
+        addSystemMessage('发送失败：未连接到服务器');
+      }
+    }
+
+    /**
+     * 发送加入消息
+     */
+    function sendJoinMessage() {
+      sendToServer({
+        type: 'join',
+        username: username
+      });
+    }
+
+    /**
+     * 发送聊天消息
+     */
+    function sendMessage() {
+      const message = messageInput.value.trim();
+
+      if (!message) return;
+
+      // 发送到服务器
+      sendToServer({
+        type: 'chat',
+        message: message
+      });
+
+      // 清空输入框
+      messageInput.value = '';
+
+      // 停止"正在输入"状态
+      if (isTyping) {
+        isTyping = false;
+        sendToServer({
+          type: 'typing',
+          isTyping: false
+        });
+      }
+    }
+
+    // ==================== UI 交互 ====================
+
+    /**
+     * 加入聊天室
+     */
+    function joinChat() {
+      username = usernameInput.value.trim();
+
+      if (!username) {
+        alert('请输入昵称');
+        return;
+      }
+
+      // 隐藏登录界面
+      loginOverlay.style.display = 'none';
+
+      // 启用输入
+      messageInput.disabled = false;
+      sendButton.disabled = false;
+
+      // 连接 WebSocket
+      connectWebSocket();
+    }
+
+    /**
+     * 添加系统消息
+     */
+    function addSystemMessage(text) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message system';
+      messageDiv.textContent = text;
+      messages.appendChild(messageDiv);
+      scrollToBottom();
+    }
+
+    /**
+     * 添加聊天消息
+     */
+    function addChatMessage(user, text, timestamp, isSelf) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message chat ${isSelf ? 'self' : ''}`;
+
+      const time = new Date(timestamp).toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      messageDiv.innerHTML = `
+        <div class="message-header">
+          <span class="username">${user}</span>
+          <span class="timestamp">${time}</span>
+        </div>
+        <div class="message-text">${escapeHtml(text)}</div>
+      `;
+
+      messages.appendChild(messageDiv);
+      scrollToBottom();
+    }
+
+    /**
+     * 更新在线用户列表
+     */
+    function updateUserList(users) {
+      userList.innerHTML = '';
+      userCount.textContent = users.length;
+
+      users.forEach(user => {
+        const li = document.createElement('li');
+        li.className = `user-item ${user.id === userId ? 'self' : ''}`;
+        li.textContent = user.username;
+        userList.appendChild(li);
+      });
+    }
+
+    /**
+     * 更新连接状态
+     */
+    function updateConnectionStatus(connected) {
+      if (connected) {
+        statusDot.classList.add('connected');
+        statusText.textContent = '已连接';
+        messageInput.disabled = false;
+        sendButton.disabled = false;
+      } else {
+        statusDot.classList.remove('connected');
+        statusText.textContent = '断开连接';
+        messageInput.disabled = true;
+        sendButton.disabled = true;
+      }
+    }
+
+    /**
+     * 显示正在输入指示器
+     */
+    function showTypingIndicator(username, isTyping) {
+      if (isTyping) {
+        typingIndicator.textContent = `${username} 正在输入...`;
+      } else {
+        typingIndicator.textContent = '';
+      }
+    }
+
+    /**
+     * 滚动到底部
+     */
+    function scrollToBottom() {
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    /**
+     * HTML 转义（防止 XSS）
+     */
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ==================== 心跳机制 ====================
+
+    /**
+     * 启动心跳
+     * 定期发送 ping 消息保持连接活跃
+     */
+    function startHeartbeat() {
+      // 每 30 秒发送一次心跳
+      heartbeatInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          sendToServer({ type: 'ping' });
+          console.log('💓 发送心跳');
+        }
+      }, 30000);
+    }
+
+    /**
+     * 停止心跳
+     */
+    function stopHeartbeat() {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
+    }
+
+    // ==================== 事件监听 ====================
+
+    // 回车发送消息
+    messageInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendMessage();
+      }
+    });
+
+    // 监听输入状态
+    messageInput.addEventListener('input', () => {
+      if (!isTyping) {
+        isTyping = true;
+        sendToServer({
+          type: 'typing',
+          isTyping: true
+        });
+      }
+
+      // 3 秒后自动取消"正在输入"状态
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        isTyping = false;
+        sendToServer({
+          type: 'typing',
+          isTyping: false
+        });
+      }, 3000);
+    });
+
+    // 用户名输入框回车
+    usernameInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        joinChat();
+      }
+    });
+
+    // ==================== 页面卸载处理 ====================
+
+    /**
+     * 页面关闭时优雅断开连接
+     */
+    window.addEventListener('beforeunload', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    });
+
+    // ==================== 学习提示 ====================
+
+    console.log('%c📚 WebSocket 学习提示', 'font-size: 16px; font-weight: bold; color: #667eea;');
+    console.log('1. 打开浏览器控制台，查看 WebSocket 通信日志');
+    console.log('2. 打开多个浏览器窗口，测试多用户聊天');
+    console.log('3. 尝试断开网络，观察重连机制');
+    console.log('4. 查看 Network 标签的 WS，可以看到所有 WebSocket 消息');
+    console.log('');
+    console.log('WebSocket API 说明:');
+    console.log('- ws.send(data): 发送消息');
+    console.log('- ws.close(): 关闭连接');
+    console.log('- ws.readyState: 连接状态 (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
+  </script>
+</body>
+</html>

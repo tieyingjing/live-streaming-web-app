@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>阶段4: 实时直播系统</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      color: white;
+      margin-bottom: 30px;
+    }
+
+    header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+
+    header p {
+      font-size: 1.2em;
+      opacity: 0.9;
+    }
+
+    .main-content {
+      display: grid;
+      grid-template-columns: 1fr 350px;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .video-section {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+
+    .video-container {
+      position: relative;
+      background: #000;
+      padding-top: 56.25%; /* 16:9 */
+    }
+
+    #video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .danmaku-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .video-controls {
+      padding: 20px;
+    }
+
+    .control-group {
+      margin-bottom: 15px;
+    }
+
+    .control-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .control-group input,
+    .control-group select {
+      width: 100%;
+      padding: 10px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .chat-section {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
+      max-height: 600px;
+    }
+
+    .chat-header {
+      padding: 15px 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      font-weight: 600;
+      font-size: 18px;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 15px;
+      overflow-y: auto;
+      background: #f8f9fa;
+    }
+
+    .chat-message {
+      margin-bottom: 10px;
+      padding: 8px 12px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .chat-message .username {
+      font-weight: 600;
+      color: #667eea;
+      margin-right: 8px;
+    }
+
+    .chat-message .text {
+      color: #333;
+    }
+
+    .chat-message .time {
+      font-size: 11px;
+      color: #999;
+      margin-left: 8px;
+    }
+
+    .chat-input {
+      padding: 15px;
+      border-top: 1px solid #e0e0e0;
+      background: white;
+    }
+
+    .chat-input-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .chat-input input {
+      flex: 1;
+      padding: 10px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .chat-input button {
+      width: auto;
+      padding: 10px 20px;
+    }
+
+    .stats {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+
+    .stats h3 {
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+
+    .stat-item {
+      padding: 15px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 8px;
+      color: white;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 5px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+
+    .status-indicator.online {
+      background: #4ade80;
+      box-shadow: 0 0 10px #4ade80;
+    }
+
+    .status-indicator.offline {
+      background: #f87171;
+    }
+
+    .system-message {
+      padding: 10px;
+      background: #fef3c7;
+      border-left: 4px solid #f59e0b;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #92400e;
+    }
+
+    @media (max-width: 768px) {
+      .main-content {
+        grid-template-columns: 1fr;
+      }
+
+      header h1 {
+        font-size: 1.8em;
+      }
+    }
+
+    /* 弹幕样式 */
+    .danmaku-item {
+      position: absolute;
+      white-space: nowrap;
+      font-size: 24px;
+      font-weight: bold;
+      color: white;
+      text-shadow:
+        -1px -1px 0 #000,
+        1px -1px 0 #000,
+        -1px 1px 0 #000,
+        1px 1px 0 #000,
+        0 0 5px rgba(0,0,0,0.5);
+      animation: danmaku-scroll linear;
+      pointer-events: none;
+    }
+
+    @keyframes danmaku-scroll {
+      from {
+        transform: translateX(0);
+      }
+      to {
+        transform: translateX(-100%);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎬 阶段4: 实时直播系统</h1>
+      <p>RTMP 推流 + HLS 播放 + WebSocket 弹幕</p>
+    </header>
+
+    <div class="main-content">
+      <div class="video-section">
+        <div class="video-container">
+          <video id="video" controls autoplay muted></video>
+          <div class="danmaku-canvas" id="danmakuCanvas"></div>
+        </div>
+
+        <div class="video-controls">
+          <div class="control-group">
+            <label for="streamKey">
+              <span class="status-indicator" id="streamStatus"></span>
+              直播流密钥
+            </label>
+            <input type="text" id="streamKey" value="stream_key" placeholder="输入流密钥">
+          </div>
+
+          <div class="control-group">
+            <button id="playBtn">▶️ 开始播放</button>
+          </div>
+
+          <div class="control-group">
+            <label>HLS 播放地址</label>
+            <input type="text" id="hlsUrl" readonly value="http://localhost:8000/live/stream_key/index.m3u8">
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-section">
+        <div class="chat-header">
+          💬 实时弹幕
+        </div>
+
+        <div class="chat-messages" id="chatMessages">
+          <div class="system-message">
+            欢迎来到直播间！开始发送弹幕吧~
+          </div>
+        </div>
+
+        <div class="chat-input">
+          <div class="chat-input-group">
+            <input type="text" id="usernameInput" placeholder="昵称" value="游客">
+          </div>
+          <div class="chat-input-group">
+            <input type="text" id="danmakuInput" placeholder="发送弹幕..." maxlength="50">
+            <button id="sendBtn">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <h3>📊 实时统计</h3>
+      <div class="stat-grid">
+        <div class="stat-item">
+          <div class="stat-label">当前画质</div>
+          <div class="stat-value" id="currentLevel">-</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">缓冲健康度</div>
+          <div class="stat-value" id="bufferHealth">0s</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">弹幕数</div>
+          <div class="stat-value" id="danmakuCount">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">在线观众</div>
+          <div class="stat-value" id="viewerCount">1</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

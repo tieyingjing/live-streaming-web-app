@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>画质切换测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            font-family: monospace;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+        }
+        video {
+            width: 100%;
+            max-width: 800px;
+            display: block;
+            margin: 20px auto;
+        }
+        .info {
+            background: #111;
+            border: 2px solid #0f0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 20px auto;
+        }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px;
+            border-bottom: 1px solid #333;
+        }
+        .label { color: #0f0; }
+        .value { color: #ff0; font-weight: bold; }
+        .level-change {
+            background: #ff0;
+            color: #000;
+            padding: 10px;
+            margin: 10px 0;
+            font-weight: bold;
+            text-align: center;
+            animation: flash 0.5s;
+        }
+        @keyframes flash {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        h1 { text-align: center; color: #ff0; }
+        .log {
+            background: #111;
+            border: 1px solid #333;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .log-entry { margin: 2px 0; }
+        .log-entry.level { color: #ff0; }
+        .log-entry.frag { color: #0ff; }
+        .log-entry.bw { color: #f0f; }
+    </style>
+</head>
+<body>
+    <h1>🎬 HLS 画质切换实时监控</h1>
+
+    <div class="info">
+        <h3 style="margin-top: 0;">选择视频</h3>
+        <select id="videoSelect" style="width: 100%; padding: 10px; background: #000; color: #0f0; border: 1px solid #0f0;">
+            <option value="">加载中...</option>
+        </select>
+    </div>
+
+    <video id="video" controls></video>
+
+    <div id="levelChange" style="display: none;" class="level-change"></div>
+
+    <div class="info">
+        <h3 style="margin-top: 0;">实时指标</h3>
+        <div class="metric">
+            <span class="label">当前画质:</span>
+            <span class="value" id="currentLevel">-</span>
+        </div>
+        <div class="metric">
+            <span class="label">估算带宽:</span>
+            <span class="value" id="bandwidth">-</span>
+        </div>
+        <div class="metric">
+            <span class="label">实际下载速度:</span>
+            <span class="value" id="downloadSpeed">-</span>
+        </div>
+        <div class="metric">
+            <span class="label">缓冲区:</span>
+            <span class="value" id="buffer">-</span>
+        </div>
+        <div class="metric">
+            <span class="label">分片序号:</span>
+            <span class="value" id="fragNum">-</span>
+        </div>
+        <div class="metric">
+            <span class="label">画质切换次数:</span>
+            <span class="value" id="switchCount">0</span>
+        </div>
+    </div>
+
+    <div class="info">
+        <h3 style="margin-top: 0;">可用画质</h3>
+        <div id="levels">-</div>
+    </div>
+
+    <div class="info">
+        <h3 style="margin-top: 0;">事件日志 <button onclick="clearLog()" style="float: right; background: #0f0; color: #000; border: none; padding: 5px 10px; cursor: pointer;">清空</button></h3>
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const videoSelect = document.getElementById('videoSelect');
+        let hls = null;
+        let lastLevel = -1;
+        let switchCount = 0;
+
+        function log(message, type = '') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            const time = new Date().toLocaleTimeString();
+            entry.textContent = `[${time}] ${message}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+            console.log(message);
+
+            // 限制日志数量
+            while (logDiv.children.length > 100) {
+                logDiv.removeChild(logDiv.lastChild);
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function showLevelChange(message) {
+            const div = document.getElementById('levelChange');
+            div.textContent = message;
+            div.style.display = 'block';
+            setTimeout(() => {
+                div.style.display = 'none';
+            }, 2000);
+        }
+
+        // 加载视频列表
+        async function loadVideos() {
+            try {
+                const res = await fetch('/api/videos');
+                const videos = await res.json();
+
+                videoSelect.innerHTML = '<option value="">选择视频...</option>';
+                videos.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v.url;
+                    opt.textContent = v.name;
+                    videoSelect.appendChild(opt);
+                });
+
+                log('✅ 视频列表加载完成');
+            } catch (err) {
+                log('❌ 加载视频列表失败: ' + err.message);
+            }
+        }
+
+        videoSelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                loadVideo(e.target.value);
+            }
+        });
+
+        function loadVideo(url) {
+            if (hls) {
+                hls.destroy();
+            }
+
+            lastLevel = -1;
+            switchCount = 0;
+            document.getElementById('switchCount').textContent = '0';
+
+            log('📺 加载视频: ' + url);
+
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    // ABR 配置
+                    abrEwmaDefaultEstimate: 500000,
+                    abrBandWidthFactor: 0.95,
+                    abrBandWidthUpFactor: 0.7,
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(video);
+
+                // 清单解析
+                hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                    log(`✅ 清单解析完成 - ${data.levels.length} 个画质`, 'level');
+
+                    const levelsDiv = document.getElementById('levels');
+                    levelsDiv.innerHTML = data.levels.map((l, i) =>
+                        `Level ${i}: ${l.width}x${l.height} @ ${(l.bitrate / 1000000).toFixed(2)} Mbps`
+                    ).join('<br>');
+                });
+
+                // 画质切换（准备）
+                hls.on(Hls.Events.LEVEL_SWITCHING, (event, data) => {
+                    const level = hls.levels[data.level];
+                    log(`🔄 准备切换到: Level ${data.level} (${level.height}p, ${(level.bitrate / 1000000).toFixed(2)} Mbps)`, 'level');
+                });
+
+                // 画质切换（完成）
+                hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+                    const level = hls.levels[data.level];
+                    const message = `Level ${data.level}: ${level.height}p @ ${(level.bitrate / 1000000).toFixed(2)} Mbps`;
+
+                    if (lastLevel !== -1 && lastLevel !== data.level) {
+                        switchCount++;
+                        document.getElementById('switchCount').textContent = switchCount;
+                        log(`✅ 画质已切换: ${message}`, 'level');
+                        showLevelChange(`画质切换到: ${level.height}p`);
+                    } else {
+                        log(`✅ 初始画质: ${message}`, 'level');
+                    }
+
+                    lastLevel = data.level;
+                    document.getElementById('currentLevel').textContent = message;
+                });
+
+                // 分片加载开始
+                hls.on(Hls.Events.FRAG_LOADING, (event, data) => {
+                    const level = hls.levels[data.frag.level];
+                    log(`⏬ 开始加载分片 #${data.frag.sn} [${level.height}p]`, 'frag');
+                });
+
+                // 分片加载完成
+                hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+                    const stats = data.frag.stats;
+                    const duration = (stats.loading.end - stats.loading.start) / 1000;
+                    const speed = (stats.total * 8) / duration / 1000000;
+                    const level = hls.levels[data.frag.level];
+
+                    log(`✅ 分片 #${data.frag.sn} [${level.height}p] 下载完成: ${(stats.total / 1024 / 1024).toFixed(2)} MB, ${duration.toFixed(2)}s, ${speed.toFixed(2)} Mbps`, 'frag');
+
+                    document.getElementById('downloadSpeed').textContent = speed.toFixed(2) + ' Mbps';
+                    document.getElementById('fragNum').textContent = data.frag.sn;
+                });
+
+                // 错误
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        log(`❌ 致命错误: ${data.type} - ${data.details}`);
+                    } else {
+                        log(`⚠️ 警告: ${data.details}`);
+                    }
+                });
+
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = url;
+                log('✅ 使用原生 HLS 支持 (Safari)');
+            } else {
+                log('❌ 浏览器不支持 HLS');
+            }
+        }
+
+        // 更新统计
+        setInterval(() => {
+            if (hls) {
+                // 带宽估算
+                if (hls.bandwidthEstimate) {
+                    const bw = (hls.bandwidthEstimate / 1000000).toFixed(2);
+                    document.getElementById('bandwidth').textContent = bw + ' Mbps';
+
+                    // 每 5 秒输出一次带宽估算
+                    if (Math.random() < 0.2) {
+                        log(`📊 估算带宽: ${bw} Mbps`, 'bw');
+                    }
+                }
+
+                // 缓冲区
+                if (video.buffered.length > 0) {
+                    const bufferEnd = video.buffered.end(video.buffered.length - 1);
+                    const bufferSize = (bufferEnd - video.currentTime).toFixed(1);
+                    document.getElementById('buffer').textContent = bufferSize + ' 秒';
+                }
+            }
+        }, 1000);
+
+        // 初始化
+        loadVideos();
+        log('🚀 监控工具已启动');
+        log('💡 使用 Chrome DevTools Network Throttling 测试画质切换');
+    </script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{
+  "name": "webrtc-streaming",
+  "version": "1.0.0",
+  "description": "Phase 5: WebRTC Live Streaming with Browser Push Support",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "webrtc",
+    "live-streaming",
+    "rtmp",
+    "mediasoup",
+    "browser-streaming"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mediasoup": "^3.12.16",
+    "mediasoup-client": "^3.6.102",
+    "ws": "^8.16.0",
+    "cors": "^2.8.5",
+    "node-media-server": "^2.6.3",
+    "fluent-ffmpeg": "^2.1.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
