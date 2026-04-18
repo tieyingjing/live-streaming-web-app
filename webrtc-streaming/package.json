@@ -22,7 +22,7 @@
     "mediasoup-client": "^3.6.102",
     "ws": "^8.16.0",
     "cors": "^2.8.5",
-    "node-media-server": "^2.6.3",
+    "node-media-server": "2.6.3",
     "fluent-ffmpeg": "^2.1.2"
   },
   "devDependencies": {

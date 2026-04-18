@@ -22,10 +22,18 @@ const bufferHealthEl = document.getElementById('bufferHealth');
 const danmakuCountEl = document.getElementById('danmakuCount');
 const viewerCountEl = document.getElementById('viewerCount');
 
+// 初始化 HLS URL (页面加载时)
+window.addEventListener('DOMContentLoaded', () => {
+  const host = window.location.hostname;
+  const key = streamKeyInput.value || 'stream_key';
+  hlsUrlInput.value = `http://${host}:8000/live/${key}/index.m3u8`;
+});
+
 // 更新 HLS URL
 streamKeyInput.addEventListener('input', () => {
   const key = streamKeyInput.value || 'stream_key';
-  hlsUrlInput.value = `http://localhost:8000/live/${key}/index.m3u8`;
+  const host = window.location.hostname;
+  hlsUrlInput.value = `http://${host}:8000/live/${key}/index.m3u8`;
 });
 
 // 播放按钮
@@ -145,7 +153,8 @@ setInterval(() => {
 // ============ WebSocket 弹幕系统 ============
 
 function connectWebSocket() {
-  ws = new WebSocket('ws://localhost:5001');
+  const host = window.location.hostname;
+  ws = new WebSocket(`ws://${host}:3001`);
 
   ws.onopen = () => {
     console.log('✅ WebSocket 已连接');

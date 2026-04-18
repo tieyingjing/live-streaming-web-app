@@ -6,15 +6,33 @@ const cors = require('cors');
 
 // Express 服务器配置
 const app = express();
-app.use(cors());
+
+// CORS 配置 - 允许所有来源访问
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Range'],
+  exposedHeaders: ['Content-Length', 'Content-Range'],
+  credentials: false
+}));
+
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static('public', {
+  setHeaders: (res, path) => {
+    // 为所有静态文件添加 CORS 头
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+}));
 
-// 提供录制文件访问
-app.use('/recordings', express.static('recordings'));
+// 提供录制文件访问（带 CORS）
+app.use('/recordings', express.static('recordings', {
+  setHeaders: (res, path) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+}));
 
-const HTTP_PORT = 5000;
-const WS_PORT = 5001;
+const HTTP_PORT = 3000;
+const WS_PORT = 3001;
 
 // RTMP 媒体服务器配置
 const config = {
@@ -31,20 +49,19 @@ const config = {
     mediaroot: './media'
   },
   trans: {
-    ffmpeg: '/opt/homebrew/bin/ffmpeg',  // macOS Homebrew 路径
+    ffmpeg: '/usr/local/bin/ffmpeg',  // FFmpeg 路径
     tasks: [
       {
         app: 'live',
         hls: true,
         hlsFlags: '[hls_time=2:hls_list_size=3:hls_flags=delete_segments]',
-        hlsKeep: false, // 不保留切片文件
+        hlsKeep: true, // 保留切片文件以便播放
         dash: false
       },
       {
         app: 'live',
-        rec: true,
-        recPath: './recordings',
-        recFlags: '[movflags=frag_keyframe+empty_moov]'
+        mp4: true,
+        mp4Flags: '[movflags=frag_keyframe+empty_moov]'
       }
     ]
   }
@@ -187,7 +204,7 @@ app.get('/api/streams', (req, res) => {
 
 // 启动服务器
 nms.run();
-app.listen(HTTP_PORT, () => {
+app.listen(HTTP_PORT, '0.0.0.0', () => {
   console.log(`
 ╔════════════════════════════════════════════════════════════════╗
 ║                   🎬 直播服务器已启动                          ║

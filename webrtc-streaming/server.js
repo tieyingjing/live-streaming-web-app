@@ -362,7 +362,7 @@ const rtmpConfig = {
     mediaroot: './media'
   },
   trans: {
-    ffmpeg: '/opt/homebrew/bin/ffmpeg',
+    ffmpeg: '/usr/local/bin/ffmpeg',
     tasks: [
       {
         app: 'live',
