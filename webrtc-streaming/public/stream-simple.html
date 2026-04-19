@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>网页推流 - 简化版</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #log { margin-top: 20px; padding: 10px; background: #f0f0f0; max-height: 300px; overflow-y: scroll; }
+    video { width: 640px; height: 480px; background: #000; }
+    button { margin: 5px; padding: 10px 20px; }
+  </style>
+</head>
+<body>
+  <h1>WebRTC 推流测试（简化版）</h1>
+  <p>流密钥: <input type="text" id="streamKey" value="test_key"></p>
+  <p>视频源:
+    <select id="videoSource">
+      <option value="camera">摄像头</option>
+      <option value="screen">屏幕共享</option>
+    </select>
+  </p>
+
+  <video id="preview" autoplay muted playsinline></video>
+  <br>
+
+  <button id="startPreviewBtn">开启预览</button>
+  <button id="stopPreviewBtn" disabled>停止预览</button>
+
+  <div id="status"></div>
+  <div id="log"></div>
+
+  <script>
+    console.log('页面脚本开始执行');
+
+    let localStream = null;
+    const preview = document.getElementById('preview');
+    const videoSourceSelect = document.getElementById('videoSource');
+    const startPreviewBtn = document.getElementById('startPreviewBtn');
+    const stopPreviewBtn = document.getElementById('stopPreviewBtn');
+    const statusDiv = document.getElementById('status');
+    const logDiv = document.getElementById('log');
+
+    function log(msg) {
+      console.log(msg);
+      const p = document.createElement('p');
+      const now = new Date();
+      const time = now.toLocaleTimeString();
+      p.textContent = '[' + time + '] ' + msg;
+      logDiv.insertBefore(p, logDiv.firstChild);
+      statusDiv.textContent = msg;
+    }
+
+    async function startPreview() {
+      try {
+        log('开始获取媒体流...');
+        const videoSource = videoSourceSelect.value;
+
+        if (videoSource === 'camera') {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 1280, height: 720 },
+            audio: true
+          });
+        } else {
+          localStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { width: 1280, height: 720 },
+            audio: true
+          });
+        }
+
+        preview.srcObject = localStream;
+        log('✅ 预览成功！');
+
+        startPreviewBtn.disabled = true;
+        stopPreviewBtn.disabled = false;
+
+      } catch (error) {
+        log('❌ 错误: ' + error.message);
+      }
+    }
+
+    function stopPreview() {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+        preview.srcObject = null;
+      }
+
+      log('预览已停止');
+      startPreviewBtn.disabled = false;
+      stopPreviewBtn.disabled = true;
+    }
+
+    startPreviewBtn.addEventListener('click', startPreview);
+    stopPreviewBtn.addEventListener('click', stopPreview);
+
+    log('✅ 页面加载完成，点击"开启预览"测试摄像头');
+  </script>
+</body>
+</html>

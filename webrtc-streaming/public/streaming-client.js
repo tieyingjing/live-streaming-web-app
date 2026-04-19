@@ -12,8 +12,16 @@ class StreamingClient {
     this.startTime = null;
     this.timerInterval = null;
 
+    // 修复 RTP header extension 冲突：Monkey patch RTCPeerConnection
+    this.patchRTCPeerConnection();
+
     this.initElements();
     this.bindEvents();
+  }
+
+  // Monkey patch RTCPeerConnection - 不做任何修改，先禁用
+  patchRTCPeerConnection() {
+    console.log('[SDP PATCH] 已禁用 SDP patching');
   }
 
   initElements() {
@@ -324,6 +332,8 @@ class StreamingClient {
       streamKey: this.streamKey
     });
 
+    console.log('[DEBUG] 接收到的 RTP capabilities（未过滤）');
+
     await this.device.load({ routerRtpCapabilities: rtpCapabilities });
 
     this.log('✅ Device 初始化完成', 'success');
@@ -354,6 +364,8 @@ class StreamingClient {
 
     this.sendTransport.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
       try {
+        console.log(`[DEBUG] ${kind} 流 produce 请求`);
+
         const { id } = await this.sendMessage({
           type: 'produce',
           transportId: this.sendTransport.id,
@@ -376,31 +388,34 @@ class StreamingClient {
     const audioTrack = this.localStream.getAudioTracks()[0];
 
     if (videoTrack) {
-      this.videoProducer = await this.sendTransport.produce({
-        track: videoTrack,
-        encodings: [
-          { maxBitrate: 500000 },
-          { maxBitrate: 1000000 },
-          { maxBitrate: 2500000 }
-        ],
-        codecOptions: {
-          videoGoogleStartBitrate: 1000
-        }
-      });
-
-      this.log('✅ 视频流已发布', 'success');
+      console.log('[DEBUG] 准备发送视频流...');
+      try {
+        this.videoProducer = await this.sendTransport.produce({
+          track: videoTrack,
+          // 简化编码，避免 RTP 扩展冲突
+          stopTracks: false
+        });
+        console.log('[DEBUG] 视频流 produce 成功');
+        this.log('✅ 视频流已发布', 'success');
+      } catch (error) {
+        console.error('[DEBUG] 视频流 produce 失败:', error);
+        throw error;
+      }
     }
 
     if (audioTrack) {
-      this.audioProducer = await this.sendTransport.produce({
-        track: audioTrack,
-        codecOptions: {
-          opusStereo: true,
-          opusDtx: true
-        }
-      });
-
-      this.log('✅ 音频流已发布', 'success');
+      console.log('[DEBUG] 准备发送音频流...');
+      try {
+        this.audioProducer = await this.sendTransport.produce({
+          track: audioTrack,
+          stopTracks: false
+        });
+        console.log('[DEBUG] 音频流 produce 成功');
+        this.log('✅ 音频流已发布', 'success');
+      } catch (error) {
+        console.error('[DEBUG] 音频流 produce 失败:', error);
+        throw error;
+      }
     }
   }
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>阶段5: WebRTC + RTMP 直播播放器</title>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="hls.js"></script>
   <style>
     * {
       margin: 0;
@@ -183,13 +183,13 @@
 
     <div class="main-content">
       <div class="video-container">
-        <video id="video" controls autoplay muted></video>
+        <video id="video" controls autoplay muted playsinline webkit-playsinline></video>
       </div>
 
       <div class="video-controls">
         <div class="control-group">
           <label for="streamKey">流密钥</label>
-          <input type="text" id="streamKey" value="stream_key" placeholder="输入流密钥">
+          <input type="text" id="streamKey" value="webrtc_stream" placeholder="输入流密钥">
         </div>
 
         <div class="control-group">
@@ -198,7 +198,7 @@
 
         <div class="control-group">
           <label>HLS 播放地址</label>
-          <input type="text" id="hlsUrl" readonly value="http://localhost:8000/live/stream_key/index.m3u8">
+          <input type="text" id="hlsUrl" readonly value="">
         </div>
       </div>
     </div>
@@ -250,10 +250,17 @@
     const playStatusEl = document.getElementById('playStatus');
     const currentStreamKeyEl = document.getElementById('currentStreamKey');
 
+    // 初始化 HLS URL (页面加载时)
+    // 使用当前页面的协议和端口，通过代理访问 HLS
+    const protocol = window.location.protocol; // http: 或 https:
+    const host = window.location.host; // 包含端口，如 192.168.2.15:6443
+    const initialKey = streamKeyInput.value || 'stream_key';
+    hlsUrlInput.value = `${protocol}//${host}/live/${initialKey}/index.m3u8`;
+
     // 更新 HLS URL
     streamKeyInput.addEventListener('input', () => {
       const key = streamKeyInput.value || 'stream_key';
-      hlsUrlInput.value = `http://localhost:8000/live/${key}/index.m3u8`;
+      hlsUrlInput.value = `${protocol}//${host}/live/${key}/index.m3u8`;
       currentStreamKeyEl.textContent = key;
     });
 
@@ -267,8 +274,23 @@
     });
 
     // 播放直播流
-    function playStream() {
+    async function playStream() {
       const streamUrl = hlsUrlInput.value;
+
+      // 先检查 HLS 文件是否存在
+      try {
+        const response = await fetch(streamUrl, { method: 'HEAD' });
+        if (!response.ok) {
+          console.warn(`⚠️ HLS 文件不存在 (${response.status})，可能推流还未开始或已结束`);
+          alert('直播流不存在\n\n可能原因：\n1. 推流还未开始\n2. 流密钥不正确\n3. HLS 切片还在生成中（需要等待5-10秒）');
+          return;
+        }
+        console.log('✅ HLS 文件存在，开始加载...');
+      } catch (error) {
+        console.error('❌ 检查 HLS 文件失败:', error);
+        alert(`无法访问 HLS 文件\n\n错误: ${error.message}\n\n请检查：\n1. 网络连接\n2. 服务器是否运行\n3. 端口 8000 是否可访问`);
+        return;
+      }
 
       if (Hls.isSupported()) {
         if (hls) {
@@ -277,8 +299,29 @@
 
         hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: true,
-          backBufferLength: 90
+          lowLatencyMode: false,  // 禁用低延迟模式以优先保证流畅性
+          backBufferLength: 90,
+          maxBufferLength: 60,    // 增加缓冲区长度
+          maxMaxBufferLength: 120, // 增加最大缓冲区长度
+          maxBufferSize: 60 * 1000 * 1000, // 60MB
+          maxBufferHole: 0.5,     // 缓冲区空洞容忍度
+          highBufferWatchdogPeriod: 3,
+          nudgeOffset: 0.1,
+          nudgeMaxRetry: 5,
+          maxFragLookUpTolerance: 0.25,
+          liveSyncDurationCount: 3, // 增加同步段数
+          liveMaxLatencyDurationCount: 10,
+          liveDurationInfinity: false,
+          manifestLoadingTimeOut: 10000,
+          manifestLoadingMaxRetry: 3,
+          manifestLoadingRetryDelay: 500,
+          levelLoadingTimeOut: 10000,
+          levelLoadingMaxRetry: 4,
+          fragLoadingTimeOut: 20000,
+          fragLoadingMaxRetry: 6,
+          fragLoadingRetryDelay: 1000,
+          startFragPrefetch: true, // 启用预加载
+          testBandwidth: true
         });
 
         hls.loadSource(streamUrl);
@@ -308,21 +351,48 @@
         });
 
         hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error('HLS 错误:', data);
+          console.error('HLS 错误详情:', {
+            type: data.type,
+            details: data.details,
+            fatal: data.fatal,
+            url: data.url,
+            response: data.response,
+            reason: data.reason
+          });
+
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                console.log('网络错误，尝试重连...');
-                hls.startLoad();
+                console.log('⚠️ 网络错误，尝试重连...', data.details);
+                setTimeout(() => hls.startLoad(), 1000);
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
-                console.log('媒体错误，尝试恢复...');
+                console.log('⚠️ 媒体错误，尝试恢复...', data.details);
                 hls.recoverMediaError();
                 break;
               default:
-                console.log('致命错误，无法播放');
+                console.error('❌ 致命错误，无法播放:', data.details);
+                alert(`播放失败: ${data.details}\n请检查流密钥是否正确，以及推流是否正在进行`);
                 stopStream();
                 break;
+            }
+          } else {
+            // 非致命错误处理
+            if (data.details === 'bufferStalledError') {
+              console.warn('⚠️ 缓冲区不足，尝试优化...');
+              // 尝试从稍早的位置重新加载
+              if (hls && video.buffered.length > 0) {
+                const bufferEnd = video.buffered.end(video.buffered.length - 1);
+                if (bufferEnd - video.currentTime < 0.5) {
+                  // 缓冲区几乎耗尽，重新加载
+                  hls.startLoad(video.currentTime - 1);
+                }
+              }
+            } else if (data.details === 'bufferAppendingError') {
+              console.warn('⚠️ 缓冲区追加错误，尝试恢复...');
+              hls.recoverMediaError();
+            } else {
+              console.warn('⚠️ HLS 警告:', data.details);
             }
           }
         });

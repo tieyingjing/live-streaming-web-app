@@ -7,17 +7,70 @@ const WebSocket = require('ws');
 const mediasoup = require('mediasoup');
 const NodeMediaServer = require('node-media-server');
 const { spawn } = require('child_process');
+const os = require('os');
 
 // Express 服务器配置
 const app = express();
+
+// CORS 配置 - 允许所有来源访问
+const cors = require('cors');
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Range'],
+  exposedHeaders: ['Content-Length', 'Content-Range'],
+  credentials: false
+}));
+
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static('public', {
+  setHeaders: (res, path) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+}));
+
+// 直接提供 HLS 文件服务，不依赖 node-media-server 的 HTTP 功能
+// 这样更可靠，且支持 HTTPS
+app.use('/live', express.static(path.join(__dirname, 'media', 'live'), {
+  setHeaders: (res, filepath) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+    // 设置正确的 MIME 类型
+    if (filepath.endsWith('.m3u8')) {
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    } else if (filepath.endsWith('.ts')) {
+      res.setHeader('Content-Type', 'video/MP2T');
+    } else if (filepath.endsWith('.mp4')) {
+      res.setHeader('Content-Type', 'video/mp4');
+    }
+  }
+}));
+
+console.log('📁 HLS 文件服务: /live → ./media/live');
 
 const HTTP_PORT = 6000;
 const HTTPS_PORT = 6443;
 const WS_PORT = 6001;
 const MEDIASOUP_PORT_START = 10000;
 const MEDIASOUP_PORT_END = 10100;
+
+// 获取本机局域网 IP
+function getLocalIp() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      // 跳过内部和非 IPv4 地址
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1'; // 如果没找到，回退到 localhost
+}
+
+const LOCAL_IP = getLocalIp();
+console.log(`📍 检测到本机 IP: ${LOCAL_IP}`);
 
 // WebRTC 需要 HTTPS
 let httpsServer;
@@ -175,12 +228,14 @@ async function handleSignaling(socket, data) {
         listenIps: [
           {
             ip: '0.0.0.0',
-            announcedIp: '127.0.0.1' // 在生产环境改为公网 IP
+            announcedIp: LOCAL_IP // 使用局域网 IP，支持跨设备连接
           }
         ],
         enableUdp: true,
         enableTcp: true,
-        preferUdp: true
+        preferUdp: true,
+        enableSctp: false,  // 禁用 SCTP 避免 RTP 扩展冲突
+        numSctpStreams: { OS: 0, MIS: 0 }
       });
 
       transports.set(transport.id, { transport, streamKey, direction });
@@ -271,50 +326,103 @@ async function startFFmpegBridge(streamKey) {
   }
 
   // 创建 PlainTransport 用于 FFmpeg 消费
+  // 最简单方案：不使用 comedia，直接指定 FFmpeg 的端口
+  // FFmpeg 监听固定端口，mediasoup 主动发送到这些端口
+  const ffmpegVideoPort = 10000 + Math.floor(Math.random() * 1000);
+  const ffmpegAudioPort = ffmpegVideoPort + 10;
+
   const videoTransport = await router.createPlainTransport({
-    listenIp: { ip: '127.0.0.1', announcedIp: null },
-    rtcpMux: false,
-    comedia: true
+    listenIp: { ip: '0.0.0.0', announcedIp: '127.0.0.1' },
+    rtcpMux: true,  // 使用单端口简化
+    comedia: false,  // mediasoup 主动连接到 FFmpeg
+    enableSrtp: false
   });
 
   const audioTransport = audioProducer ? await router.createPlainTransport({
-    listenIp: { ip: '127.0.0.1', announcedIp: null },
-    rtcpMux: false,
-    comedia: true
+    listenIp: { ip: '0.0.0.0', announcedIp: '127.0.0.1' },
+    rtcpMux: true,
+    comedia: false,
+    enableSrtp: false
   }) : null;
 
   // 创建 Consumer
   const videoConsumer = await videoTransport.consume({
     producerId: videoProducer.producer.id,
     rtpCapabilities: router.rtpCapabilities,
-    paused: false
+    paused: true  // 先暂停，等 FFmpeg 启动后再恢复
   });
 
   const audioConsumer = audioProducer ? await audioTransport.consume({
     producerId: audioProducer.producer.id,
     rtpCapabilities: router.rtpCapabilities,
-    paused: false
+    paused: true
   }) : null;
 
-  // 构建 FFmpeg 命令
-  const videoPort = videoTransport.tuple.localPort;
-  const audioPort = audioTransport ? audioTransport.tuple.localPort : null;
+  console.log(`📡 FFmpeg 将监听端口:`);
+  console.log(`   视频: ${ffmpegVideoPort}`);
+  if (ffmpegAudioPort) {
+    console.log(`   音频: ${ffmpegAudioPort}`);
+  }
 
-  const ffmpegCmd = buildFFmpegCommand(streamKey, videoPort, audioPort);
+  // 生成 SDP 文件，描述 RTP payload
+  const sdpPath = path.join(__dirname, `stream_${streamKey}.sdp`);
+  const sdpContent = generateSDPWithListen(videoConsumer, audioConsumer, ffmpegVideoPort, ffmpegAudioPort);
+  fs.writeFileSync(sdpPath, sdpContent);
+  console.log(`📄 SDP 文件已生成: ${sdpPath}`);
 
-  const ffmpeg = spawn('ffmpeg', ffmpegCmd.split(' '));
+  // 启动 FFmpeg - 使用 SDP 文件
+  const ffmpegArgs = buildFFmpegWithSDP(streamKey, sdpPath);
+  console.log(`🎬 启动 FFmpeg`);
+  const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+
+  // 等待 FFmpeg 启动并开始监听
+  await new Promise(resolve => setTimeout(resolve, 3000));
+
+  // 连接 mediasoup 到 FFmpeg 的监听端口
+  console.log(`🔌 连接 mediasoup 到 FFmpeg...`);
+  await videoTransport.connect({
+    ip: '127.0.0.1',
+    port: ffmpegVideoPort
+  });
+
+  if (audioTransport) {
+    await audioTransport.connect({
+      ip: '127.0.0.1',
+      port: ffmpegAudioPort
+    });
+  }
+
+  // 恢复 consumer，开始发送 RTP
+  console.log('🎬 恢复视频 consumer，开始发送 RTP 到 FFmpeg...');
+  await videoConsumer.resume();
+  if (audioConsumer) {
+    console.log('🔊 恢复音频 consumer...');
+    await audioConsumer.resume();
+  }
+
+  // 监听 consumer 统计信息
+  setInterval(async () => {
+    const stats = await videoConsumer.getStats();
+    const packetCount = stats.find(s => s.type === 'outbound-rtp')?.packetCount || 0;
+    if (packetCount > 0) {
+      // console.log(`📊 视频 RTP 包已发送: ${packetCount}`);
+    }
+  }, 5000);
 
   ffmpeg.stdout.on('data', (data) => {
-    console.log(`[FFmpeg] ${data}`);
+    // 忽略 stdout
   });
 
   ffmpeg.stderr.on('data', (data) => {
-    // FFmpeg 输出到 stderr
-    // console.log(`[FFmpeg] ${data}`);
+    const output = data.toString();
+    // 临时启用所有日志以便调试
+    // console.log(`[FFmpeg ${streamKey}] ${output.trim()}`);
   });
 
   ffmpeg.on('close', (code) => {
-    console.log(`FFmpeg 进程退出，代码: ${code}`);
+    if (code !== 0) {
+      console.log(`⚠️ FFmpeg 进程退出，代码: ${code}`);
+    }
     ffmpegProcesses.delete(streamKey);
   });
 
@@ -329,21 +437,229 @@ async function startFFmpegBridge(streamKey) {
   console.log(`✅ FFmpeg 桥接已启动: ${streamKey}`);
 }
 
-function buildFFmpegCommand(streamKey, videoPort, audioPort) {
-  let cmd = `-protocol_whitelist file,rtp,udp -i rtp://127.0.0.1:${videoPort}`;
+// 生成带监听端口的 SDP 文件
+function generateSDPWithListen(videoConsumer, audioConsumer, videoPort, audioPort) {
+  const videoCodec = videoConsumer.rtpParameters.codecs[0];
+  const audioCodec = audioConsumer ? audioConsumer.rtpParameters.codecs[0] : null;
 
-  if (audioPort) {
-    cmd += ` -protocol_whitelist file,rtp,udp -i rtp://127.0.0.1:${audioPort}`;
-    cmd += ` -map 0:v -map 1:a`;
-  } else {
-    cmd += ` -map 0:v`;
+  // 注意：这里端口要写 0，因为 FFmpeg 会自动监听
+  let sdp = `v=0
+o=- 0 0 IN IP4 127.0.0.1
+s=mediasoup
+c=IN IP4 127.0.0.1
+t=0 0
+m=video ${videoPort} RTP/AVP ${videoCodec.payloadType}
+a=rtpmap:${videoCodec.payloadType} ${videoCodec.mimeType.split('/')[1]}/${videoCodec.clockRate}
+`;
+
+  if (videoCodec.parameters) {
+    const fmtp = Object.entries(videoCodec.parameters)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(';');
+    if (fmtp) {
+      sdp += `a=fmtp:${videoCodec.payloadType} ${fmtp}\n`;
+    }
   }
 
-  cmd += ` -c:v libx264 -preset ultrafast -tune zerolatency`;
-  cmd += ` -c:a aac -b:a 128k`;
-  cmd += ` -f flv rtmp://localhost:1935/live/${streamKey}`;
+  sdp += `a=recvonly
+`;
 
-  return cmd;
+  if (audioConsumer && audioCodec && audioPort) {
+    sdp += `m=audio ${audioPort} RTP/AVP ${audioCodec.payloadType}
+a=rtpmap:${audioCodec.payloadType} ${audioCodec.mimeType.split('/')[1]}/${audioCodec.clockRate}/${audioCodec.channels || 2}
+`;
+
+    if (audioCodec.parameters) {
+      const fmtp = Object.entries(audioCodec.parameters)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(';');
+      if (fmtp) {
+        sdp += `a=fmtp:${audioCodec.payloadType} ${fmtp}\n`;
+      }
+    }
+
+    sdp += `a=recvonly
+`;
+  }
+
+  return sdp;
+}
+
+// 使用 SDP 文件启动 FFmpeg
+function buildFFmpegWithSDP(streamKey, sdpPath) {
+  const args = [
+    '-protocol_whitelist', 'file,udp,rtp',
+    '-analyzeduration', '10000000',
+    '-probesize', '10000000',
+    '-i', sdpPath,  // 使用 SDP 文件
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-tune', 'zerolatency',
+    '-b:v', '2000k',
+    '-maxrate', '2000k',
+    '-bufsize', '4000k',
+    '-g', '60',
+    '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ar', '48000',
+    '-f', 'flv',
+    `rtmp://localhost:1935/live/${streamKey}`
+  ];
+
+  return args;
+}
+
+// 旧版本保留
+function buildFFmpegCommand(streamKey, sdpPath, videoPort, audioPort) {
+  // 使用 UDP 监听方式，明确告诉 FFmpeg 监听端口
+  const args = [
+    '-protocol_whitelist', 'file,rtp,udp',
+    '-analyzeduration', '5000000',
+    '-probesize', '10000000',
+    '-reorder_queue_size', '0',
+  ];
+
+  // 视频输入 - 使用 UDP 监听
+  args.push(
+    '-f', 'sdp',
+    '-i', sdpPath
+  );
+
+  // 输出设置
+  args.push(
+    '-c:v', 'libx264',  // VP8 转 H.264
+    '-preset', 'ultrafast',
+    '-tune', 'zerolatency',
+    '-b:v', '2000k',
+    '-maxrate', '2000k',
+    '-bufsize', '4000k',
+    '-g', '60',
+    '-pix_fmt', 'yuv420p'
+  );
+
+  if (audioPort) {
+    args.push(
+      '-c:a', 'aac',  // Opus 转 AAC
+      '-b:a', '128k',
+      '-ar', '48000'
+    );
+  } else {
+    args.push('-an');  // 没有音频
+  }
+
+  args.push(
+    '-f', 'flv',
+    `rtmp://localhost:1935/live/${streamKey}`
+  );
+
+  return args;
+}
+
+// 为 FFmpeg 生成 SDP - FFmpeg 作为发送方连接到 mediasoup
+function generateSDPForFFmpeg(videoConsumer, audioConsumer, videoPort, audioPort) {
+  const videoCodec = videoConsumer.rtpParameters.codecs[0];
+  const audioCodec = audioConsumer ? audioConsumer.rtpParameters.codecs[0] : null;
+
+  let sdp = `v=0
+o=- 0 0 IN IP4 127.0.0.1
+s=mediasoup
+c=IN IP4 127.0.0.1
+t=0 0
+`;
+
+  // Video m-line - FFmpeg will send to this port
+  sdp += `m=video ${videoPort} RTP/AVP ${videoCodec.payloadType}
+a=rtpmap:${videoCodec.payloadType} ${videoCodec.mimeType.split('/')[1]}/${videoCodec.clockRate}
+`;
+
+  if (videoCodec.parameters) {
+    const fmtp = Object.entries(videoCodec.parameters)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(';');
+    if (fmtp) {
+      sdp += `a=fmtp:${videoCodec.payloadType} ${fmtp}\n`;
+    }
+  }
+
+  sdp += `a=sendonly
+`;
+
+  // Audio m-line
+  if (audioConsumer && audioCodec && audioPort) {
+    sdp += `m=audio ${audioPort} RTP/AVP ${audioCodec.payloadType}
+a=rtpmap:${audioCodec.payloadType} ${audioCodec.mimeType.split('/')[1]}/${audioCodec.clockRate}/${audioCodec.channels || 2}
+`;
+
+    if (audioCodec.parameters) {
+      const fmtp = Object.entries(audioCodec.parameters)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(';');
+      if (fmtp) {
+        sdp += `a=fmtp:${audioCodec.payloadType} ${fmtp}\n`;
+      }
+    }
+
+    sdp += `a=sendonly
+`;
+  }
+
+  return sdp;
+}
+
+// 旧的函数保留以防需要
+function generateSDP(videoConsumer, audioConsumer, videoPort, audioPort) {
+  const videoCodec = videoConsumer.rtpParameters.codecs[0];
+  const audioCodec = audioConsumer ? audioConsumer.rtpParameters.codecs[0] : null;
+
+  let sdp = `v=0
+o=- 0 0 IN IP4 127.0.0.1
+s=FFmpeg Stream
+c=IN IP4 127.0.0.1
+t=0 0
+`;
+
+  // Video m-line with UDP listen directive
+  sdp += `m=video ${videoPort} RTP/AVP ${videoCodec.payloadType}
+c=IN IP4 127.0.0.1
+a=rtpmap:${videoCodec.payloadType} ${videoCodec.mimeType.split('/')[1]}/${videoCodec.clockRate}
+`;
+
+  if (videoCodec.parameters) {
+    const fmtp = Object.entries(videoCodec.parameters)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(';');
+    if (fmtp) {
+      sdp += `a=fmtp:${videoCodec.payloadType} ${fmtp}\n`;
+    }
+  }
+
+  sdp += `a=recvonly
+a=rtcp:${videoPort + 1}
+`;
+
+  // Audio m-line
+  if (audioConsumer && audioCodec) {
+    sdp += `m=audio ${audioPort} RTP/AVP ${audioCodec.payloadType}
+c=IN IP4 127.0.0.1
+a=rtpmap:${audioCodec.payloadType} ${audioCodec.mimeType.split('/')[1]}/${audioCodec.clockRate}/${audioCodec.channels || 2}
+`;
+
+    if (audioCodec.parameters) {
+      const fmtp = Object.entries(audioCodec.parameters)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(';');
+      if (fmtp) {
+        sdp += `a=fmtp:${audioCodec.payloadType} ${fmtp}\n`;
+      }
+    }
+
+    sdp += `a=recvonly
+a=rtcp:${audioPort + 1}
+`;
+  }
+
+  return sdp;
 }
 
 // ================== RTMP 服务器 ==================
@@ -359,7 +675,8 @@ const rtmpConfig = {
   http: {
     port: 8000,
     allow_origin: '*',
-    mediaroot: './media'
+    mediaroot: './media',
+    api: true  // 启用 API
   },
   trans: {
     ffmpeg: '/usr/local/bin/ffmpeg',
@@ -367,8 +684,13 @@ const rtmpConfig = {
       {
         app: 'live',
         hls: true,
-        hlsFlags: '[hls_time=2:hls_list_size=3:hls_flags=delete_segments]',
-        hlsKeep: false
+        hlsFlags: '[hls_time=3:hls_list_size=6:hls_flags=delete_segments+append_list:hls_delete_threshold=3]',
+        hlsKeep: true  // 保留切片文件以便播放
+      },
+      {
+        app: 'live',
+        mp4: true,
+        mp4Flags: '[movflags=frag_keyframe+empty_moov]'  // 录制为 MP4
       }
     ]
   }
@@ -444,8 +766,8 @@ async function main() {
     // 启动 RTMP 服务器
     nms.run();
 
-    // 启动 HTTP/HTTPS 服务器
-    httpServer.listen(HTTP_PORT, () => {
+    // 启动 HTTP/HTTPS 服务器（监听所有网络接口）
+    httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
       console.log(`
 ╔════════════════════════════════════════════════════════════════╗
 ║          🎬 阶段5: WebRTC + RTMP 直播服务器已启动              ║
@@ -484,7 +806,7 @@ async function main() {
     });
 
     if (httpsServer) {
-      httpsServer.listen(HTTPS_PORT, () => {
+      httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
         console.log(`✅ HTTPS 服务器运行在端口 ${HTTPS_PORT}`);
       });
     }

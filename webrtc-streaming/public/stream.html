@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>网页推流 - WebRTC Live Streaming</title>
-  <script src="https://cdn.jsdelivr.net/npm/mediasoup-client@3/build/mediasoup-client.js"></script>
   <style>
     * {
       margin: 0;
@@ -345,6 +344,25 @@
     </div>
   </div>
 
-  <script src="streaming-client.js"></script>
+  <!-- 加载本地打包的 mediasoup-client -->
+  <script src="mediasoup-client.bundle.js"></script>
+
+  <script>
+    console.log('✅ mediasoup-client 已加载:', window.mediasoupClient);
+
+    // 等待 DOM 完全加载
+    window.addEventListener('load', () => {
+      console.log('✅ DOM 已加载');
+      const script = document.createElement('script');
+      script.src = 'streaming-client.js';
+      script.onload = () => {
+        console.log('✅ streaming-client.js 加载完成');
+      };
+      script.onerror = (e) => {
+        console.error('❌ streaming-client.js 加载失败:', e);
+      };
+      document.body.appendChild(script);
+    });
+  </script>
 </body>
 </html>
